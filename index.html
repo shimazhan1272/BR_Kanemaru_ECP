@@ -96,6 +96,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .pill.wait{color:var(--muted)}.pill.on{color:var(--accent)}.pill.dead{color:var(--hit)}
 .army-funds{font-family:var(--font-num);font-size:13px;color:var(--muted)}
 .army-funds b{color:var(--ink);font-size:17px}
+.army-funds .gain{display:block;color:var(--good);font-size:12px}
 .ladder{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .step{border:1px solid var(--line);border-radius:6px;padding:6px;text-align:center;display:grid}
 .step small{font-size:11px;color:var(--muted)}
@@ -216,7 +217,8 @@ td.jp{font-family:var(--font-body)}
       <li>軍資金を約1:2:4で歩兵・騎馬隊・本隊に分けます（端数は本隊へ）。</li>
       <li>各部隊をさらに1:3:9に分け、1段目から順に張ります。外れたら次の段へ。</li>
       <li>歩兵が3段とも外れたら騎馬隊、騎馬隊も全滅したら本隊が出撃します。</li>
-      <li>当たったら、その部隊は1段目に戻ります。浮いた分で下の部隊（騎馬隊→歩兵の順）を満額に戻せるときは復活させ、残りは当たった部隊の資金に足して1:3:9で分け直します。</li>
+      <li>当たったら、その部隊は1段目に戻り、増えた資金で1:3:9に分け直します。</li>
+      <li>騎馬隊や本隊の利益（最初の配分を超えた分）が全滅した部隊の満額に届いたら、その分を移して復活させ、次からは復活した部隊（歩兵が先）で張ります。</li>
       <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。損益が目標（初期設定は軍資金の10%）に届いたら終了です。</li>
       <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
@@ -252,7 +254,7 @@ td.jp{font-family:var(--font-body)}
     return {
       capital, targetPct, target: Math.round(capital * targetPct / 100),
       history: [],
-      armies: allocs.map((alloc, i) => ({...ARMY_DEF[i], alloc, ladder: ladder(alloc), funds: alloc, step: 0}))
+      armies: allocs.map((alloc, i) => ({...ARMY_DEF[i], base: alloc, alloc, ladder: ladder(alloc), funds: alloc, step: 0}))
     };
   }
 
@@ -286,6 +288,8 @@ td.jp{font-family:var(--font-body)}
   }
 
   const alive = a => a.step < 3 && a.funds > 0;
+  // 部隊の最初の配分（古い保存データにはないので今の配分で代用）
+  const baseOf = a => a.base == null ? a.alloc : a.base;
   const activeIndex = () => state.armies.findIndex(alive);
   const total = () => state.armies.reduce((s, a) => s + a.funds, 0);
   const profit = () => total() - state.capital;
@@ -327,25 +331,22 @@ td.jp{font-family:var(--font-body)}
     } else {
       a.funds += payout - bet.amount;
       a.step = 0;
-      let surplus = Math.max(0, a.funds - a.alloc);
-      a.funds -= surplus;
       const notes = [];
-      // 上位部隊の当たりで下位部隊を騎馬隊→歩兵の順に復活
-      for (let j = bet.i - 1; j >= 0 && surplus > 0; j--){
+      // 当たった部隊の利益（最初の配分を超えた分）が下の部隊の満額に届いたら、騎馬隊→歩兵の順に移して復活させる
+      const base = baseOf(a);
+      for (let j = bet.i - 1; j >= 0; j--){
         const b = state.armies[j];
         const need = b.alloc - b.funds;
-        // 満額で復活できる部隊だけ復活させる
-        if (need <= 0 || need > surplus) continue;
-        b.funds += need; surplus -= need; b.step = 0;
-        notes.push(b.name + "復活");
+        if (need <= 0 || need > a.funds - base) continue;
+        a.funds -= need; b.funds += need; b.step = 0;
+        notes.push(b.name + "へ" + yen(need) + "移して復活");
       }
-      // 残りは当たった部隊に足して1:3:9で分け直す
-      if (surplus > 0){
-        a.funds += surplus;
+      // 残りは当たった部隊で1:3:9に分け直す（最初の配分を下回ったときは分け直さない）
+      if (a.funds < base) notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足");
+      else if (a.funds !== a.alloc){
         a.alloc = a.funds; a.ladder = ladder(a.alloc);
         notes.push(a.name + "を" + yen(a.alloc) + "で分け直し");
       }
-      if (a.funds < a.alloc) notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足");
       rec.note = notes.join("・");
     }
     rec.pl = profit();
@@ -547,7 +548,8 @@ td.jp{font-family:var(--font-body)}
       const revive = dead && a.funds < a.alloc ? '<div class="revive">復活まで あと' + yen(a.alloc - a.funds) + '</div>' : "";
       return '<div class="army' + (on ? " active" : "") + (dead ? " dead" : "") + '">' +
         '<div class="army-top"><div class="army-name c' + a.lane + '">' + a.name + '</div>' + pill + '</div>' +
-        '<div class="army-funds">残り <b>' + yen(a.funds) + '</b> / ' + yen(a.alloc) + '</div>' +
+        '<div class="army-funds">残り <b>' + yen(a.funds) + '</b> / ' + yen(a.alloc) +
+          (a.funds > baseOf(a) ? '<span class="gain">利益 +' + yen(a.funds - baseOf(a)) + '</span>' : '') + '</div>' +
         '<div class="ladder">' + steps + '</div>' + revive + '</div>';
     }).join("");
 
