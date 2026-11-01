@@ -47,9 +47,6 @@ input[type=date]{width:auto}
 input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .race-fields{display:flex;flex-wrap:wrap;gap:10px}
 .hint.warn{color:var(--warn);font-weight:700}
-.check{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:14px;color:var(--ink);font-size:14px;font-weight:700;cursor:pointer}
-.check input{width:18px;height:18px;margin:0;accent-color:var(--accent)}
-.check span{flex-basis:100%;padding-left:26px;font-weight:400;font-size:13px;color:var(--muted)}
 .hist-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
 .confirm{margin-top:12px;padding:12px 14px;border:1px solid var(--warn);border-radius:8px;display:grid;gap:10px}
 .confirm p{margin:0;font-weight:500}
@@ -77,14 +74,14 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .warn{color:var(--warn);font-size:13px;font-weight:700}
 
 /* 収支 */
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .stat{background:var(--surface);padding:12px 14px;display:grid;gap:2px}
 .stat span{font-size:12px;color:var(--muted)}
 .stat b{font-family:var(--font-num);font-size:19px}
 .plus{color:var(--good)} .minus{color:var(--hit)}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
 .bar i{display:block;height:100%;background:var(--good);width:0;transition:width .3s}
-@media (max-width:620px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:480px){.stat{padding:10px}.stat b{font-size:16px}}
 
 /* 部隊 */
 .armies{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -138,7 +135,6 @@ td.jp{font-family:var(--font-body)}
       <label for="targetPct">目標利益（%）<input id="targetPct" type="number" min="1" step="1" value="10"></label>
       <button class="primary" id="startBtn">この金額で開始</button>
     </div>
-    <label class="check" for="rebalance"><input id="rebalance" type="checkbox">当たったら部隊の資金を分け直す<span>浮いた分はストックせず、当たった部隊に残して1:3:9で分け直します。下の部隊を満額で復活できるときだけ、先に復活させます。</span></label>
     <p class="hint" id="setupHint"></p>
     <p class="err" id="setupErr" hidden></p>
   </section>
@@ -169,7 +165,6 @@ td.jp{font-family:var(--font-body)}
     <div class="stats">
       <div class="stat"><span>現在の総資金</span><b id="sTotal"></b></div>
       <div class="stat"><span>損益</span><b id="sPL"></b></div>
-      <div class="stat"><span>ストック</span><b id="sStock"></b></div>
       <div class="stat"><span>目標まで</span><b id="sLeft"></b></div>
     </div>
     <div class="bar" aria-hidden="true"><i id="progress"></i></div>
@@ -221,11 +216,9 @@ td.jp{font-family:var(--font-body)}
       <li>軍資金を約1:2:4で歩兵・騎馬隊・本隊に分けます（端数は本隊へ）。</li>
       <li>各部隊をさらに1:3:9に分け、1段目から順に張ります。外れたら次の段へ。</li>
       <li>歩兵が3段とも外れたら騎馬隊、騎馬隊も全滅したら本隊が出撃します。</li>
-      <li>当たったら、その部隊は1段目に戻ります。浮いた分で騎馬隊→歩兵の順に復活させ、残りはストックします。</li>
+      <li>当たったら、その部隊は1段目に戻ります。浮いた分で下の部隊（騎馬隊→歩兵の順）を満額に戻せるときは復活させ、残りは当たった部隊の資金に足して1:3:9で分け直します。</li>
       <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。損益が目標（初期設定は軍資金の10%）に届いたら終了です。</li>
-      <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>
-      <li>「当たったら部隊の資金を分け直す」をオンにすると、浮いた分をストックせず、当たった部隊の資金に足して1:3:9で分け直します。下の部隊はその浮いた分で満額にできるときだけ復活します。</li>
-    </ol>
+      <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
   </section>
 </div>
@@ -258,7 +251,7 @@ td.jp{font-family:var(--font-body)}
     const allocs = allocate(capital);
     return {
       capital, targetPct, target: Math.round(capital * targetPct / 100),
-      stock: 0, history: [], rebalance: !!(state && state.rebalance),
+      history: [],
       armies: allocs.map((alloc, i) => ({...ARMY_DEF[i], alloc, ladder: ladder(alloc), funds: alloc, step: 0}))
     };
   }
@@ -294,7 +287,7 @@ td.jp{font-family:var(--font-body)}
 
   const alive = a => a.step < 3 && a.funds > 0;
   const activeIndex = () => state.armies.findIndex(alive);
-  const total = () => state.armies.reduce((s, a) => s + a.funds, 0) + state.stock;
+  const total = () => state.armies.reduce((s, a) => s + a.funds, 0);
   const profit = () => total() - state.capital;
   const isGoal = () => profit() >= state.target;
   function currentBet(){
@@ -325,7 +318,7 @@ td.jp{font-family:var(--font-body)}
   function apply(bet, hit, payout, race){
     snapshot();
     const a = state.armies[bet.i];
-    const rec = {date: race.date, venue: race.venue, race: race.race, rebalance: !!state.rebalance,
+    const rec = {date: race.date, venue: race.venue, race: race.race,
       army: a.name, step: bet.step + 1, bet: bet.amount, hit, payout: hit ? payout : 0, note: ""};
     if (!hit){
       a.funds -= bet.amount;
@@ -341,20 +334,17 @@ td.jp{font-family:var(--font-body)}
       for (let j = bet.i - 1; j >= 0 && surplus > 0; j--){
         const b = state.armies[j];
         const need = b.alloc - b.funds;
-        if (need <= 0) continue;
-        // 分け直す設定では、満額で復活できる部隊だけ復活させる
-        if (state.rebalance && need > surplus) continue;
-        const put = Math.min(need, surplus);
-        b.funds += put; surplus -= put;
-        if (b.funds >= b.alloc){ b.step = 0; notes.push(b.name + "復活"); }
-        else notes.push(b.name + "に" + yen(put) + "補充");
+        // 満額で復活できる部隊だけ復活させる
+        if (need <= 0 || need > surplus) continue;
+        b.funds += need; surplus -= need; b.step = 0;
+        notes.push(b.name + "復活");
       }
-      if (surplus > 0 && state.rebalance){
-        a.funds += surplus; surplus = 0;
+      // 残りは当たった部隊に足して1:3:9で分け直す
+      if (surplus > 0){
+        a.funds += surplus;
         a.alloc = a.funds; a.ladder = ladder(a.alloc);
         notes.push(a.name + "を" + yen(a.alloc) + "で分け直し");
       }
-      if (surplus > 0){ state.stock += surplus; notes.push(yen(surplus) + "ストック"); }
       if (a.funds < a.alloc) notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足");
       rec.note = notes.join("・");
     }
@@ -363,12 +353,12 @@ td.jp{font-family:var(--font-body)}
   }
 
   // ---- CSV 保存・読込 ----
-  const COLS = ["番号","日付","レース場","レース","部隊","段","投票額","結果","払戻","損益","メモ","軍資金","目標利益%","分け直し"];
+  const COLS = ["番号","日付","レース場","レース","部隊","段","投票額","結果","払戻","損益","メモ","軍資金","目標利益%"];
   const csvCell = v => { const s = v == null ? "" : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   function toCSV(){
     const lines = [COLS.join(",")];
     state.history.forEach((r, n) => lines.push([n + 1, r.date || "", r.venue || "", r.race || "", r.army, r.step, r.bet,
-      r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, state.targetPct, r.rebalance ? "ON" : "OFF"].map(csvCell).join(",")));
+      r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, state.targetPct].map(csvCell).join(",")));
     return "﻿" + lines.join("\r\n") + "\r\n";
   }
   function stamp(){
@@ -425,8 +415,6 @@ td.jp{font-family:var(--font-body)}
         if (hit && !(payout > 0)) throw new Error(line + "行目: 的中なのに払戻金額がありません。");
         const betCol = num(get(r, "投票額"));
         if (betCol > 0 && betCol !== bet.amount) throw new Error(line + "行目: 投票額 " + yen(betCol) + " が計算上の投票額 " + yen(bet.amount) + " と合いません。");
-        // 各レース時点の「分け直し」設定で再生する（列がない古いCSVはオフ）
-        state.rebalance = get(r, "分け直し").toUpperCase() === "ON";
         const raceNo = parseInt(get(r, "レース"), 10);
         apply(bet, hit, payout, {date: normDate(get(r, "日付")), venue: get(r, "レース場"), race: raceNo >= 1 && raceNo <= 12 ? raceNo : null});
       });
@@ -543,7 +531,6 @@ td.jp{font-family:var(--font-body)}
     $("sTotal").textContent = yen(total());
     $("sPL").textContent = signed(pl);
     $("sPL").className = pl > 0 ? "plus" : pl < 0 ? "minus" : "";
-    $("sStock").textContent = yen(state.stock);
     $("sLeft").textContent = goal ? "達成" : yen(state.target - pl);
     $("progress").style.width = Math.max(0, Math.min(100, pl / state.target * 100)) + "%";
 
@@ -576,7 +563,6 @@ td.jp{font-family:var(--font-body)}
           '</td><td>' + (r.hit ? yen(r.payout) : "—") + '</td><td class="' + (r.pl > 0 ? "plus" : r.pl < 0 ? "minus" : "") + '">' + signed(r.pl) +
           '</td><td class="jp" style="text-align:left">' + (r.note || "") + '</td></tr>').reverse().join("") + '</tbody>';
 
-    $("rebalance").checked = !!state.rebalance;
     $("capital").value = state.capital;
     $("targetPct").value = state.targetPct;
     $("setupHint").textContent = "目標利益 " + yen(state.target) + "（" + state.targetPct + "%）／ 歩兵 " + yen(state.armies[0].alloc) +
@@ -627,7 +613,6 @@ td.jp{font-family:var(--font-body)}
     save(); render();
   });
   $("payout").addEventListener("input", () => { $("payoutErr").hidden = true; render(); });
-  $("rebalance").addEventListener("change", e => { state.rebalance = e.target.checked; save(); render(); });
   $("exportBtn").addEventListener("click", exportCSV);
   $("importBtn").addEventListener("click", () => $("importFile").click());
   $("importFile").addEventListener("change", e => { const f = e.target.files[0]; if (f) readImport(f); e.target.value = ""; });
@@ -635,7 +620,7 @@ td.jp{font-family:var(--font-body)}
   $("importCancel").addEventListener("click", () => { pendingImport = null; $("importConfirm").hidden = true; });
   $("resetBtn").addEventListener("click", () => {
     if (!state.history.length){ csvMsg("リセットする履歴はありません。", false); return; }
-    $("resetText").textContent = state.history.length + "件の履歴と、各部隊・ストックの状態を消して、軍資金 " + yen(state.capital) +
+    $("resetText").textContent = state.history.length + "件の履歴と各部隊の状態を消して、軍資金 " + yen(state.capital) +
       " の最初からやり直します。元に戻せないので、残したい場合は先に「CSVで保存」してください。";
     $("resetConfirm").hidden = false;
     $("resetCancel").focus();
