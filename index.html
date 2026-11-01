@@ -218,7 +218,8 @@ td.jp{font-family:var(--font-body)}
       <li>各部隊をさらに1:3:9に分け、1段目から順に張ります。外れたら次の段へ。</li>
       <li>歩兵が3段とも外れたら騎馬隊、騎馬隊も全滅したら本隊が出撃します。</li>
       <li>当たったら、その部隊は1段目に戻り、増えた資金で1:3:9に分け直します。</li>
-      <li>騎馬隊や本隊の利益（最初の配分を超えた分）が全滅した部隊の満額に届いたら、その分を移して復活させ、次からは復活した部隊（歩兵が先）で張ります。</li>
+      <li>本隊の利益（最初の配分を超えた分）が騎馬隊の満額に届いたら騎馬隊へ、騎馬隊の利益が歩兵の満額に届いたら歩兵へ移して復活させ、次からは復活した部隊で張ります。</li>
+      <li>配分・各段の投票額・移す金額は100円単位です。払戻の100円未満の端数は張らずにその部隊に残します。</li>
       <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。損益が目標（初期設定は軍資金の10%）に届いたら終了です。</li>
       <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
@@ -287,7 +288,7 @@ td.jp{font-family:var(--font-body)}
     $("raceNo").value = String(form.race);
   }
 
-  const alive = a => a.step < 3 && a.funds > 0;
+  const alive = a => a.step < 3 && a.funds >= 100;
   // 部隊の最初の配分（古い保存データにはないので今の配分で代用）
   const baseOf = a => a.base == null ? a.alloc : a.base;
   const activeIndex = () => state.armies.findIndex(alive);
@@ -298,7 +299,7 @@ td.jp{font-family:var(--font-body)}
     const i = activeIndex();
     if (i < 0) return null;
     const a = state.armies[i];
-    return {i, step: a.step, amount: Math.min(a.ladder[a.step], a.funds)};
+    return {i, step: a.step, amount: Math.min(a.ladder[a.step], Math.floor(a.funds / 100) * 100)};
   }
 
   function snapshot(){ undoStack.push(JSON.stringify(state)); if (undoStack.length > 200) undoStack.shift(); }
@@ -336,16 +337,21 @@ td.jp{font-family:var(--font-body)}
       const base = baseOf(a);
       for (let j = bet.i - 1; j >= 0; j--){
         const b = state.armies[j];
-        const need = b.alloc - b.funds;
-        if (need <= 0 || need > a.funds - base) continue;
+        const need = Math.ceil((b.alloc - b.funds) / 100) * 100;
+        if (need <= 0) continue;
+        // 利益が足りなければ、その下の部隊も復活させない（騎馬隊→歩兵の順を守る）
+        if (need > a.funds - base) break;
         a.funds -= need; b.funds += need; b.step = 0;
         notes.push(b.name + "へ" + yen(need) + "移して復活");
       }
-      // 残りは当たった部隊で1:3:9に分け直す（最初の配分を下回ったときは分け直さない）
+      // 残りは当たった部隊で100円単位にして1:3:9に分け直す（端数は張らずに残す。最初の配分を下回ったときは分け直さない）
       if (a.funds < base) notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足");
-      else if (a.funds !== a.alloc){
-        a.alloc = a.funds; a.ladder = ladder(a.alloc);
-        notes.push(a.name + "を" + yen(a.alloc) + "で分け直し");
+      else {
+        const alloc = Math.floor(a.funds / 100) * 100;
+        if (alloc !== a.alloc){
+          a.alloc = alloc; a.ladder = ladder(alloc);
+          notes.push(a.name + "を" + yen(alloc) + "で分け直し");
+        }
       }
       rec.note = notes.join("・");
     }
