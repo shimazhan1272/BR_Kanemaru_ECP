@@ -78,6 +78,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .stat{background:var(--surface);padding:12px 14px;display:grid;gap:2px}
 .stat span{font-size:12px;color:var(--muted)}
 .stat b{font-family:var(--font-num);font-size:19px}
+.stat small{font-family:var(--font-num);font-size:12px;color:var(--muted)}
 .plus{color:var(--good)} .minus{color:var(--hit)}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
 .bar i{display:block;height:100%;background:var(--good);width:0;transition:width .3s}
@@ -133,7 +134,7 @@ td.jp{font-family:var(--font-body)}
     <h2 id="setup-h">軍資金の設定</h2>
     <div class="row" style="margin-top:12px">
       <label for="capital">軍資金（円）<input id="capital" type="number" min="9100" step="1000" value="100000"></label>
-      <label for="targetPct">目標利益（%）<input id="targetPct" type="number" min="1" step="1" value="10"></label>
+      <label for="targetRate">目標回収率（%）<input id="targetRate" type="number" min="101" step="1" value="110"></label>
       <button class="primary" id="startBtn">この金額で開始</button>
     </div>
     <p class="hint" id="setupHint"></p>
@@ -164,7 +165,7 @@ td.jp{font-family:var(--font-body)}
 
   <section aria-label="収支">
     <div class="stats">
-      <div class="stat"><span>現在の総資金</span><b id="sTotal"></b></div>
+      <div class="stat"><span>現在の総資金</span><b id="sTotal"></b><small id="sRate"></small></div>
       <div class="stat"><span>損益</span><b id="sPL"></b></div>
       <div class="stat"><span>目標まで</span><b id="sLeft"></b></div>
     </div>
@@ -220,7 +221,7 @@ td.jp{font-family:var(--font-body)}
       <li>当たったら、その部隊は1段目に戻り、増えた資金で1:3:9に分け直します。</li>
       <li>本隊の利益（最初の配分を超えた分）が騎馬隊の満額に届いたら騎馬隊へ、騎馬隊の利益が歩兵の満額に届いたら歩兵へ移して復活させ、次からは復活した部隊で張ります。</li>
       <li>配分・各段の投票額・移す金額は100円単位です。払戻の100円未満の端数は張らずにその部隊に残します。</li>
-      <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。損益が目標（初期設定は軍資金の10%）に届いたら終了です。</li>
+      <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。</li>
       <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
   </section>
@@ -250,10 +251,11 @@ td.jp{font-family:var(--font-body)}
     return [u, u * 2, capital - u * 3];
   }
 
-  function newState(capital, targetPct){
+  // targetRate は目標回収率（%）。110 なら総資金が軍資金の110%で目標達成
+  function newState(capital, targetRate){
     const allocs = allocate(capital);
     return {
-      capital, targetPct, target: Math.round(capital * targetPct / 100),
+      capital, targetRate, target: Math.round(capital * (targetRate - 100) / 100),
       history: [],
       armies: allocs.map((alloc, i) => ({...ARMY_DEF[i], base: alloc, alloc, ladder: ladder(alloc), funds: alloc, step: 0}))
     };
@@ -274,10 +276,15 @@ td.jp{font-family:var(--font-body)}
       if (raw){
         const d = JSON.parse(raw);
         if (d && d.form) form = {...form, ...d.form};
-        if (d && d.state && d.state.armies){ state = d.state; undoStack = d.undoStack || []; return; }
+        if (d && d.state && d.state.armies){
+          state = d.state; undoStack = d.undoStack || [];
+          // 目標利益（%）で保存された古いデータは回収率に読み替える
+          if (state.targetRate == null) state.targetRate = 100 + (state.targetPct || 10);
+          return;
+        }
       }
     } catch(e){}
-    state = newState(100000, 10);
+    state = newState(100000, 110);
   }
   function readForm(){
     form = {date: $("raceDate").value, venue: $("venue").value, race: parseInt($("raceNo").value, 10)};
@@ -360,12 +367,12 @@ td.jp{font-family:var(--font-body)}
   }
 
   // ---- CSV 保存・読込 ----
-  const COLS = ["番号","日付","レース場","レース","部隊","段","投票額","結果","払戻","損益","メモ","軍資金","目標利益%"];
+  const COLS = ["番号","日付","レース場","レース","部隊","段","投票額","結果","払戻","損益","メモ","軍資金","目標回収率%"];
   const csvCell = v => { const s = v == null ? "" : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   function toCSV(){
     const lines = [COLS.join(",")];
     state.history.forEach((r, n) => lines.push([n + 1, r.date || "", r.venue || "", r.race || "", r.army, r.step, r.bet,
-      r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, state.targetPct].map(csvCell).join(",")));
+      r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, state.targetRate].map(csvCell).join(",")));
     return "﻿" + lines.join("\r\n") + "\r\n";
   }
   function stamp(){
@@ -402,15 +409,17 @@ td.jp{font-family:var(--font-body)}
     if (rows.length < 2) throw new Error("履歴が入っていないCSVです。");
     const head = rows[0].map(h => h.trim());
     const col = name => head.indexOf(name);
-    for (const need of ["結果","払戻","軍資金","目標利益%"]) if (col(need) < 0) throw new Error("「" + need + "」の列がありません。このツールで保存したCSVを選んでください。");
+    for (const need of ["結果","払戻","軍資金"]) if (col(need) < 0) throw new Error("「" + need + "」の列がありません。このツールで保存したCSVを選んでください。");
+    if (col("目標回収率%") < 0 && col("目標利益%") < 0) throw new Error("「目標回収率%」の列がありません。このツールで保存したCSVを選んでください。");
     const get = (r, name) => col(name) < 0 ? "" : (r[col(name)] || "").trim();
     const data = rows.slice(1);
     const cap = Math.floor(num(get(data[0], "軍資金")) / 100) * 100;
-    const pct = num(get(data[0], "目標利益%"));
-    if (!allocate(cap) || !(pct > 0)) throw new Error("軍資金または目標利益の値が読み取れません。");
+    // 古いCSVの「目標利益%」（10 など）は回収率（110 など）に読み替える
+    const rate = col("目標回収率%") >= 0 ? num(get(data[0], "目標回収率%")) : 100 + num(get(data[0], "目標利益%"));
+    if (!allocate(cap) || !(rate > 100)) throw new Error("軍資金または目標回収率の値が読み取れません。");
     const keep = {state, undoStack};
     try {
-      state = newState(cap, pct); undoStack = [];
+      state = newState(cap, rate); undoStack = [];
       data.forEach((r, k) => {
         const line = k + 2;
         const bet = currentBet();
@@ -536,6 +545,7 @@ td.jp{font-family:var(--font-body)}
     // 収支
     const pl = profit();
     $("sTotal").textContent = yen(total());
+    $("sRate").textContent = "回収率 " + (Math.floor(total() / state.capital * 1000) / 10).toFixed(1) + "%";
     $("sPL").textContent = signed(pl);
     $("sPL").className = pl > 0 ? "plus" : pl < 0 ? "minus" : "";
     $("sLeft").textContent = goal ? "達成" : yen(state.target - pl);
@@ -572,8 +582,8 @@ td.jp{font-family:var(--font-body)}
           '</td><td class="jp" style="text-align:left">' + (r.note || "") + '</td></tr>').reverse().join("") + '</tbody>';
 
     $("capital").value = state.capital;
-    $("targetPct").value = state.targetPct;
-    $("setupHint").textContent = "目標利益 " + yen(state.target) + "（" + state.targetPct + "%）／ 歩兵 " + yen(state.armies[0].alloc) +
+    $("targetRate").value = state.targetRate;
+    $("setupHint").textContent = "目標 " + yen(state.capital + state.target) + "（回収率" + state.targetRate + "%・利益 " + yen(state.target) + "）／ 歩兵 " + yen(state.armies[0].alloc) +
       "・騎馬隊 " + yen(state.armies[1].alloc) + "・本隊 " + yen(state.armies[2].alloc);
     renderCalc();
   }
@@ -635,7 +645,7 @@ td.jp{font-family:var(--font-body)}
   });
   $("resetCancel").addEventListener("click", () => { $("resetConfirm").hidden = true; });
   $("resetOk").addEventListener("click", () => {
-    state = newState(state.capital, state.targetPct); undoStack = [];
+    state = newState(state.capital, state.targetRate); undoStack = [];
     form.race = 1; writeForm();
     $("payout").value = "";
     $("resetConfirm").hidden = true;
@@ -647,12 +657,12 @@ td.jp{font-family:var(--font-body)}
   $("raceNo").innerHTML = Array.from({length: 12}, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + 'R</option>').join("");
   $("startBtn").addEventListener("click", () => {
     const cap = Math.floor((parseFloat($("capital").value) || 0) / 100) * 100;
-    const pct = parseFloat($("targetPct").value);
+    const rate = parseFloat($("targetRate").value);
     const err = $("setupErr");
     if (!allocate(cap)){ err.textContent = "軍資金は9,100円以上にしてください（歩兵1段目を100円にするための最低額です）。"; err.hidden = false; return; }
-    if (!(pct > 0)){ err.textContent = "目標利益は1%以上で入力してください。"; err.hidden = false; return; }
+    if (!(rate > 100)){ err.textContent = "目標回収率は100%より大きい値（例：105、110）で入力してください。"; err.hidden = false; return; }
     err.hidden = true;
-    state = newState(cap, pct); undoStack = [];
+    state = newState(cap, rate); undoStack = [];
     save(); render();
   });
 
