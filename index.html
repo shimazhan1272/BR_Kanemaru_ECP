@@ -221,7 +221,7 @@ td.jp{font-family:var(--font-body)}
       <li>当たったら、その部隊は1段目に戻り、増えた資金で1:3:9に分け直します。</li>
       <li>本隊の利益（最初の配分を超えた分）が騎馬隊の満額に届いたら騎馬隊へ、騎馬隊の利益が歩兵の満額に届いたら歩兵へ移して復活させ、次からは復活した部隊で張ります。</li>
       <li>配分・各段の投票額・移す金額は100円単位です。払戻の100円未満の端数は張らずにその部隊に残します。</li>
-      <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。</li>
+      <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。目標回収率は途中で変えても、履歴を消さずにその場で反映されます。</li>
       <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
   </section>
@@ -266,6 +266,11 @@ td.jp{font-family:var(--font-body)}
   function today(){
     const d = new Date();
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+
+  function setTarget(rate){
+    state.targetRate = rate;
+    state.target = Math.round(state.capital * (rate - 100) / 100);
   }
 
   let state, undoStack = [], form = {date: today(), venue: VENUES[0], race: 1};
@@ -330,7 +335,7 @@ td.jp{font-family:var(--font-body)}
   function apply(bet, hit, payout, race){
     snapshot();
     const a = state.armies[bet.i];
-    const rec = {date: race.date, venue: race.venue, race: race.race,
+    const rec = {date: race.date, venue: race.venue, race: race.race, targetRate: state.targetRate,
       army: a.name, step: bet.step + 1, bet: bet.amount, hit, payout: hit ? payout : 0, note: ""};
     if (!hit){
       a.funds -= bet.amount;
@@ -372,7 +377,7 @@ td.jp{font-family:var(--font-body)}
   function toCSV(){
     const lines = [COLS.join(",")];
     state.history.forEach((r, n) => lines.push([n + 1, r.date || "", r.venue || "", r.race || "", r.army, r.step, r.bet,
-      r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, state.targetRate].map(csvCell).join(",")));
+      r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, r.targetRate || state.targetRate].map(csvCell).join(",")));
     return "﻿" + lines.join("\r\n") + "\r\n";
   }
   function stamp(){
@@ -415,13 +420,17 @@ td.jp{font-family:var(--font-body)}
     const data = rows.slice(1);
     const cap = Math.floor(num(get(data[0], "軍資金")) / 100) * 100;
     // 古いCSVの「目標利益%」（10 など）は回収率（110 など）に読み替える
-    const rate = col("目標回収率%") >= 0 ? num(get(data[0], "目標回収率%")) : 100 + num(get(data[0], "目標利益%"));
+    const rateOf = r => col("目標回収率%") >= 0 ? num(get(r, "目標回収率%")) : 100 + num(get(r, "目標利益%"));
+    const rate = rateOf(data[0]);
     if (!allocate(cap) || !(rate > 100)) throw new Error("軍資金または目標回収率の値が読み取れません。");
     const keep = {state, undoStack};
     try {
       state = newState(cap, rate); undoStack = [];
       data.forEach((r, k) => {
         const line = k + 2;
+        // 各レースを記録した時点の目標回収率で再生する
+        const rowRate = rateOf(r);
+        if (rowRate > 100) setTarget(rowRate);
         const bet = currentBet();
         if (!bet || isGoal()) throw new Error(line + "行目: この時点で目標達成または全滅しているため、続きの履歴は再生できません。");
         const res = get(r, "結果");
@@ -626,7 +635,10 @@ td.jp{font-family:var(--font-body)}
     if (!undoStack.length) return;
     // 取り消したレースを入力欄に戻す
     const last = state.history[state.history.length - 1];
+    const rateNow = state.targetRate;
     state = JSON.parse(undoStack.pop());
+    // 目標回収率は戻さず、今の設定のままにする
+    setTarget(rateNow);
     if (last && last.date){ form = {date: last.date, venue: last.venue, race: last.race}; writeForm(); }
     save(); render();
   });
@@ -655,6 +667,15 @@ td.jp{font-family:var(--font-body)}
   ["raceDate", "venue", "raceNo"].forEach(id => $(id).addEventListener("change", () => { readForm(); save(); }));
   $("venue").innerHTML = VENUES.map(v => '<option value="' + v + '">' + v + '</option>').join("");
   $("raceNo").innerHTML = Array.from({length: 12}, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + 'R</option>').join("");
+  // 目標回収率は途中で変えてもリセットせず、その場で反映する
+  $("targetRate").addEventListener("change", () => {
+    const rate = parseFloat($("targetRate").value);
+    const err = $("setupErr");
+    if (!(rate > 100)){ err.textContent = "目標回収率は100%より大きい値（例：105、110）で入力してください。"; err.hidden = false; return; }
+    err.hidden = true;
+    setTarget(rate);
+    save(); render();
+  });
   $("startBtn").addEventListener("click", () => {
     const cap = Math.floor((parseFloat($("capital").value) || 0) / 100) * 100;
     const rate = parseFloat($("targetRate").value);
