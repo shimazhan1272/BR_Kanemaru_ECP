@@ -263,6 +263,11 @@ td.jp{font-family:var(--font-body)}
 
   const VENUES = ["桐生","戸田","江戸川","平和島","多摩川","浜名湖","蒲郡","常滑","津","三国","びわこ","住之江",
     "尼崎","鳴門","丸亀","児島","宮島","徳山","下関","若松","芦屋","福岡","唐津","大村"];
+  // 「24_大村」のように場コード_レース場名で表す（古いデータの「大村」も読み替える）
+  const venueLabel = v => {
+    const i = VENUES.indexOf(String(v || "").trim());
+    return i >= 0 ? String(i + 1).padStart(2, "0") + "_" + VENUES[i] : String(v || "");
+  };
   function today(){
     const d = new Date();
     return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
@@ -273,7 +278,7 @@ td.jp{font-family:var(--font-body)}
     state.target = Math.round(state.capital * (rate - 100) / 100);
   }
 
-  let state, undoStack = [], form = {date: today(), venue: VENUES[0], race: 1};
+  let state, undoStack = [], form = {date: today(), venue: venueLabel(VENUES[0]), race: 1};
   function save(){ try { localStorage.setItem(KEY, JSON.stringify({state, undoStack, form})); } catch(e){} }
   function load(){
     try {
@@ -296,6 +301,7 @@ td.jp{font-family:var(--font-body)}
   }
   function writeForm(){
     $("raceDate").value = form.date;
+    form.venue = venueLabel(form.venue);
     $("venue").value = form.venue;
     $("raceNo").value = String(form.race);
   }
@@ -376,7 +382,7 @@ td.jp{font-family:var(--font-body)}
   const csvCell = v => { const s = v == null ? "" : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   function toCSV(){
     const lines = [COLS.join(",")];
-    state.history.forEach((r, n) => lines.push([n + 1, r.date || "", r.venue || "", r.race || "", r.army, r.step, r.bet,
+    state.history.forEach((r, n) => lines.push([n + 1, r.date || "", venueLabel(r.venue), r.race || "", r.army, r.step, r.bet,
       r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, r.targetRate || state.targetRate].map(csvCell).join(",")));
     return "﻿" + lines.join("\r\n") + "\r\n";
   }
@@ -441,7 +447,7 @@ td.jp{font-family:var(--font-body)}
         const betCol = num(get(r, "投票額"));
         if (betCol > 0 && betCol !== bet.amount) throw new Error(line + "行目: 投票額 " + yen(betCol) + " が計算上の投票額 " + yen(bet.amount) + " と合いません。");
         const raceNo = parseInt(get(r, "レース"), 10);
-        apply(bet, hit, payout, {date: normDate(get(r, "日付")), venue: get(r, "レース場"), race: raceNo >= 1 && raceNo <= 12 ? raceNo : null});
+        apply(bet, hit, payout, {date: normDate(get(r, "日付")), venue: venueLabel(get(r, "レース場")), race: raceNo >= 1 && raceNo <= 12 ? raceNo : null});
       });
       return {state, undoStack, count: data.length};
     } finally {
@@ -584,7 +590,7 @@ td.jp{font-family:var(--font-body)}
       ? '<tr><td class="empty jp">まだ投票はありません。上の「的中」「不的中」で結果を記録します。</td></tr>'
       : '<thead><tr><th>#</th><th>日付</th><th>レース場</th><th>R</th><th>部隊</th><th>段</th><th>投票額</th><th>結果</th><th>払戻</th><th>損益</th><th>メモ</th></tr></thead><tbody>' +
         h.map((r, n) => '<tr><td>' + (n + 1) + '</td><td>' + (r.date ? r.date.replace(/-/g, "/") : "—") +
-          '</td><td class="jp">' + (r.venue || "—") + '</td><td>' + (r.race ? r.race + "R" : "—") +
+          '</td><td class="jp">' + (venueLabel(r.venue) || "—") + '</td><td>' + (r.race ? r.race + "R" : "—") +
           '</td><td class="jp ' + armyCls(r.army) + '">' + r.army + '</td><td>' + r.step + '</td><td>' + yen(r.bet) +
           '</td><td class="jp ' + (r.hit ? "res-hit" : "") + '">' + (r.hit ? "的中 " + (r.payout / r.bet).toFixed(2) + "倍" : "不的中") +
           '</td><td>' + (r.hit ? yen(r.payout) : "—") + '</td><td class="' + (r.pl > 0 ? "plus" : r.pl < 0 ? "minus" : "") + '">' + signed(r.pl) +
@@ -665,7 +671,7 @@ td.jp{font-family:var(--font-body)}
     csvMsg("履歴をリセットしました。", false);
   });
   ["raceDate", "venue", "raceNo"].forEach(id => $(id).addEventListener("change", () => { readForm(); save(); }));
-  $("venue").innerHTML = VENUES.map(v => '<option value="' + v + '">' + v + '</option>').join("");
+  $("venue").innerHTML = VENUES.map(venueLabel).map(v => '<option value="' + v + '">' + v + '</option>').join("");
   $("raceNo").innerHTML = Array.from({length: 12}, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + 'R</option>').join("");
   // 目標回収率は途中で変えてもリセットせず、その場で反映する
   $("targetRate").addEventListener("change", () => {
