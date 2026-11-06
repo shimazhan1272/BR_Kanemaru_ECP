@@ -105,6 +105,16 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .step.now small{color:inherit;opacity:.75}
 .step.gone b{text-decoration:line-through;color:var(--dead)}
 .revive{font-size:12px;color:var(--warn)}
+.step .need{font-family:var(--font-num);font-size:11px;color:var(--muted);margin-top:2px}
+.step.now .need{color:inherit;opacity:.85}
+.need-odds{margin:-4px 0 0;font-weight:700;font-size:15px}
+.need-odds b{font-family:var(--font-num);font-size:18px}
+.need-odds .num{font-weight:500;color:var(--muted)}
+.cap-hint{margin-top:10px;padding:10px 12px;border:1px solid var(--warn);border-radius:8px;display:grid;gap:8px;font-size:13px}
+.cap-hint p{margin:0;color:var(--warn);font-weight:700}
+.cap-pick{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;color:var(--muted)}
+.cap-pick button{font-family:var(--font-num);font-size:14px;padding:6px 12px}
+.judge-ok{color:var(--good);font-weight:700}.judge-ng{color:var(--hit);font-weight:700}
 
 /* 合成オッズ計算 */
 details summary{cursor:pointer;font-weight:700}
@@ -146,15 +156,19 @@ td.jp{font-family:var(--font-body)}
 <div class="wrap">
   <header>
     <h1>金丸法<span class="x">×</span>ECP 資金管理</h1>
-    <p class="lead">軍資金を歩兵・騎馬隊・本隊の三部隊に分け、各部隊を1:3:9の三段で張ります。合成オッズ1.5倍以上で当たれば、その部隊の負けを取り戻してプラスになります。</p>
+    <p class="lead">軍資金を歩兵・騎馬隊・本隊の三部隊に分け、各部隊を<span data-k="step">1:3:9</span>の三段で張ります。合成オッズ<span data-k="ok">1.5</span>倍以上で当たれば、その部隊の負けを取り戻してプラスになります。</p>
   </header>
 
   <section class="panel" aria-labelledby="setup-h">
     <h2 id="setup-h">軍資金の設定</h2>
     <div class="row" style="margin-top:12px">
-      <label for="capital">軍資金（円）<input id="capital" type="number" inputmode="numeric" min="9100" step="1000" value="100000"></label>
+      <label for="capital">軍資金（円）<input id="capital" type="number" inputmode="numeric" step="1000" value="100000"></label>
       <label for="targetRate">目標回収率（%）<input id="targetRate" type="number" inputmode="numeric" min="101" step="1" value="110"></label>
       <button class="primary" id="startBtn">この金額で開始</button>
+    </div>
+    <div class="cap-hint" id="capHint" hidden>
+      <p id="capFrac"></p>
+      <div class="cap-pick"><span>端数が出ない金額：</span><span id="capLowWrap"><button type="button" id="capLow"></button>（下）</span><span id="capSep">／</span><span id="capUpWrap"><button type="button" id="capUp"></button>（上）</span></div>
     </div>
     <p class="hint" id="setupHint"></p>
     <p class="err" id="setupErr" hidden></p>
@@ -166,6 +180,7 @@ td.jp{font-family:var(--font-body)}
       <div class="bet-who" id="betWho"></div>
     </div>
     <div class="bet-amt" id="betAmt">¥0</div>
+    <p class="need-odds" id="needOdds" hidden></p>
     <div id="banner"></div>
     <div class="race-fields">
       <label for="raceDate">日付<input id="raceDate" type="date"></label>
@@ -192,7 +207,7 @@ td.jp{font-family:var(--font-body)}
   </section>
 
   <section aria-labelledby="army-h" style="display:grid;gap:10px">
-    <h2 id="army-h">三部隊の状況（各部隊を1:3:9に分割）</h2>
+    <h2 id="army-h">三部隊の状況（各部隊を<span data-k="step">1:3:9</span>に分割）</h2>
     <div class="armies" id="armies"></div>
   </section>
 
@@ -202,6 +217,7 @@ td.jp{font-family:var(--font-body)}
       <p class="hint">買い目ごとのオッズを入れると、合成オッズと「どれが当たっても払戻がそろう」配分を次の投票額で計算します（100円単位）。</p>
       <div class="odds-grid" id="oddsGrid"></div>
       <div class="tbl-wrap"><table id="calcTbl"></table></div>
+      <p class="hint" id="calcJudge" hidden></p>
       <div class="row" style="margin-top:12px">
         <button id="addTicket">買い目を追加</button>
       </div>
@@ -234,13 +250,13 @@ td.jp{font-family:var(--font-body)}
   <section class="panel" aria-labelledby="rule-h">
     <h2 id="rule-h">ルール</h2>
     <ol class="rules" style="margin-top:10px">
-      <li>軍資金を約1:2:4で歩兵・騎馬隊・本隊に分けます（端数は本隊へ）。</li>
-      <li>各部隊をさらに1:3:9に分け、1段目から順に張ります。外れたら次の段へ。</li>
+      <li>軍資金を約<span data-k="army">1:2:4</span>で歩兵・騎馬隊・本隊に分けます（端数は本隊へ）。</li>
+      <li>各部隊をさらに<span data-k="step">1:3:9</span>に分け、1段目から順に張ります。外れたら次の段へ。</li>
       <li>歩兵が3段とも外れたら騎馬隊、騎馬隊も全滅したら本隊が出撃します。</li>
-      <li>当たったら、その部隊は1段目に戻り、増えた資金で1:3:9に分け直します。</li>
+      <li>当たったら、その部隊は1段目に戻り、増えた資金で<span data-k="step">1:3:9</span>に分け直します。</li>
       <li>本隊の利益（最初の配分を超えた分）が騎馬隊の満額に届いたら騎馬隊へ、騎馬隊の利益が歩兵の満額に届いたら歩兵へ移して復活させ、次からは復活した部隊で張ります。</li>
-      <li>配分・各段の投票額・移す金額は100円単位です。払戻の100円未満の端数は張らずにその部隊に残します。</li>
-      <li>合成オッズは1.5倍（払戻が投票額の1.5倍）あればOK。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。目標回収率は途中で変えても、履歴を消さずにその場で反映されます。</li>
+      <li>配分・各段の投票額・移す金額は<span data-k="unit">100</span>円単位です。払戻の<span data-k="unit">100</span>円未満の端数は張らずにその部隊に残します。</li>
+      <li>合成オッズは<span data-k="ok">1.5</span>倍（払戻が投票額の<span data-k="ok">1.5</span>倍）あればOK。各段で必要な合成オッズは「次の投票」と「三部隊の状況」に表示します。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。目標回収率は途中で変えても、履歴を消さずにその場で反映されます。</li>
       <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
   </section>
@@ -258,16 +274,52 @@ td.jp{font-family:var(--font-body)}
   const signed = n => (n > 0 ? "+" : "") + yen(n);
   const $ = id => document.getElementById(id);
 
-  // 部隊ごとの資金を1:3:9に分ける（端数は3段目へ）
+  // ---- 配分ルールの定数（金額・倍率はすべてここから求める） ----
+  const ARMY_RATIO = [1, 2, 4];   // 歩兵:騎馬隊:本隊
+  const STEP_RATIO = [1, 3, 9];   // 1段目:2段目:3段目
+  const UNIT = 100;               // 配分・投票額・移す金額の単位（円）
+  const OK_ODDS = 1.5;            // 目安にする合成オッズ
+  const ODDS_DIV = 10;            // 必要オッズの刻み（10 なら0.1倍単位）
+  const sumOf = xs => xs.reduce((s, v) => s + v, 0);
+  const ARMY_SUM = sumOf(ARMY_RATIO), STEP_SUM = sumOf(STEP_RATIO);
+  const INF_UNIT = UNIT * STEP_SUM;          // 歩兵の単位（各段が UNIT で割り切れる額）
+  const MIN_CAPITAL = INF_UNIT * ARMY_SUM;   // 最低の軍資金（歩兵の1段目が UNIT になる額）
+  const CLEAN_STEP = INF_UNIT * ARMY_SUM;    // 端数が出ない軍資金の間隔
+  const floorUnit = n => Math.floor(n / UNIT) * UNIT;
+
+  // 部隊ごとの資金を段の比率に分ける（端数は最後の段へ）
   function ladder(alloc){
-    const a = Math.floor(alloc / 13 / 100) * 100;
-    return [a, a * 3, alloc - a * 4];
+    const a = Math.floor(alloc / STEP_SUM / UNIT) * UNIT;
+    const steps = STEP_RATIO.slice(0, -1).map(r => a * r);
+    return [...steps, alloc - sumOf(steps)];
   }
-  // 軍資金を1:2:4に分ける。歩兵は1:3:9で100円単位に割り切れるよう1,300円単位
+  // 軍資金を部隊の比率に分ける。歩兵は各段が UNIT で割り切れるよう INF_UNIT 単位（端数は最後の部隊へ）
   function allocate(capital){
-    const u = Math.floor(capital / 7 / 1300) * 1300;
-    if (u < 1300) return null;
-    return [u, u * 2, capital - u * 3];
+    const u = Math.floor(capital / ARMY_SUM / INF_UNIT) * INF_UNIT;
+    if (u < INF_UNIT) return null;
+    const armies = ARMY_RATIO.slice(0, -1).map(r => u * r);
+    return [...armies, capital - sumOf(armies)];
+  }
+  // 比率どおりちょうどに分かれているか（最後の要素に端数が入っていないか）
+  const exactSplit = (parts, ratio) => parts.every((v, i) => v * ratio[0] === parts[0] * ratio[i]);
+  // 端数が出ない軍資金：本隊にも、どの部隊の最後の段にも端数が入らない
+  function isClean(capital){
+    const al = allocate(capital);
+    return !!al && exactSplit(al, ARMY_RATIO) && al.every(v => exactSplit(ladder(v), STEP_RATIO));
+  }
+  // 入力額以下で最大／入力額より大きく最小の、端数が出ない軍資金（配分の関数で確かめてから返す）
+  function cleanNeighbors(capital){
+    const lowRaw = Math.floor(capital / CLEAN_STEP) * CLEAN_STEP;
+    const low = lowRaw >= MIN_CAPITAL && isClean(lowRaw) ? lowRaw : null;
+    const up = lowRaw + CLEAN_STEP;
+    return {low, up: isClean(up) ? up : null};
+  }
+  // その段で当たったときに部隊の負けを取り戻す払戻と、必要な合成オッズ（ODDS_DIV 刻みで切り上げ。1.0倍以下なら利益が出る最低の値）
+  function needOdds(alloc, funds, amount){
+    const pay = alloc - funds + amount;
+    let t = Math.ceil(pay * ODDS_DIV / amount);
+    if (t <= ODDS_DIV) t = ODDS_DIV + 1;
+    return {pay, odds: t / ODDS_DIV, label: (t / ODDS_DIV).toFixed(String(ODDS_DIV).length - 1)};
   }
 
   // targetRate は目標回収率（%）。110 なら総資金が軍資金の110%で目標達成
@@ -327,7 +379,22 @@ td.jp{font-family:var(--font-body)}
     $("raceNo").value = String(form.race);
   }
 
-  const alive = a => a.step < 3 && a.funds >= 100;
+  const alive = a => a.step < STEP_RATIO.length && a.funds >= UNIT;
+  // その段で実際に張れる額（段の金額か、残り資金を UNIT 単位に切り捨てた額の小さいほう）
+  const betAmount = (a, step, funds) => Math.min(a.ladder[step], floorUnit(funds));
+  // 今の段から順に外れていったとして、各段で当たったときの必要オッズ（使った段・張れない段は null）
+  function stepNeeds(a){
+    if (!alive(a)) return a.ladder.map(() => null);
+    let f = a.funds;
+    return a.ladder.map((_, k) => {
+      if (k < a.step) return null;
+      const amount = betAmount(a, k, f);
+      if (amount < UNIT) return null;
+      const n = needOdds(a.alloc, f, amount);
+      f -= amount;
+      return n;
+    });
+  }
   // 部隊の最初の配分（古い保存データにはないので今の配分で代用）
   const baseOf = a => a.base == null ? a.alloc : a.base;
   const activeIndex = () => state.armies.findIndex(alive);
@@ -338,7 +405,7 @@ td.jp{font-family:var(--font-body)}
     const i = activeIndex();
     if (i < 0) return null;
     const a = state.armies[i];
-    return {i, step: a.step, amount: Math.min(a.ladder[a.step], Math.floor(a.funds / 100) * 100)};
+    return {i, step: a.step, amount: betAmount(a, a.step, a.funds)};
   }
 
   function snapshot(){ undoStack.push(JSON.stringify(state)); if (undoStack.length > 200) undoStack.shift(); }
@@ -367,7 +434,7 @@ td.jp{font-family:var(--font-body)}
     if (!hit){
       a.funds -= bet.amount;
       a.step += 1;
-      if (!alive(a)) { a.step = 3; rec.note = a.name + "全滅"; }
+      if (!alive(a)) { a.step = STEP_RATIO.length; rec.note = a.name + "全滅"; }
     } else {
       a.funds += payout - bet.amount;
       a.step = 0;
@@ -376,7 +443,7 @@ td.jp{font-family:var(--font-body)}
       const base = baseOf(a);
       for (let j = bet.i - 1; j >= 0; j--){
         const b = state.armies[j];
-        const need = Math.ceil((b.alloc - b.funds) / 100) * 100;
+        const need = Math.ceil((b.alloc - b.funds) / UNIT) * UNIT;
         if (need <= 0) continue;
         // 利益が足りなければ、その下の部隊も復活させない（騎馬隊→歩兵の順を守る）
         if (need > a.funds - base) break;
@@ -386,7 +453,7 @@ td.jp{font-family:var(--font-body)}
       // 残りは当たった部隊で100円単位にして1:3:9に分け直す（端数は張らずに残す。最初の配分を下回ったときは分け直さない）
       if (a.funds < base) notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足");
       else {
-        const alloc = Math.floor(a.funds / 100) * 100;
+        const alloc = floorUnit(a.funds);
         if (alloc !== a.alloc){
           a.alloc = alloc; a.ladder = ladder(alloc);
           notes.push(a.name + "を" + yen(alloc) + "で分け直し");
@@ -445,7 +512,7 @@ td.jp{font-family:var(--font-body)}
     if (col("目標回収率%") < 0 && col("目標利益%") < 0) throw new Error("「目標回収率%」の列がありません。このツールで保存したCSVを選んでください。");
     const get = (r, name) => col(name) < 0 ? "" : (r[col(name)] || "").trim();
     const data = rows.slice(1);
-    const cap = Math.floor(num(get(data[0], "軍資金")) / 100) * 100;
+    const cap = floorUnit(num(get(data[0], "軍資金")));
     // 古いCSVの「目標利益%」（10 など）は回収率（110 など）に読み替える
     const rateOf = r => col("目標回収率%") >= 0 ? num(get(r, "目標回収率%")) : 100 + num(get(r, "目標利益%"));
     const rate = rateOf(data[0]);
@@ -540,6 +607,26 @@ td.jp{font-family:var(--font-body)}
     csvMsg(state.history.length + "件の履歴を読み込みました。続きから再開できます。", false);
   }
 
+  // 軍資金の入力欄の値（UNIT 未満は切り捨て）
+  const capInput = () => floorUnit(parseFloat($("capital").value) || 0);
+  // 入力した軍資金に端数が出るとき、近い「端数が出ない金額」を案内する
+  function renderCapHint(){
+    const cap = capInput(), box = $("capHint");
+    if (!(cap > 0) || isClean(cap)){ box.hidden = true; return; }
+    const {low, up} = cleanNeighbors(cap);
+    const al = allocate(cap);
+    if (al && low != null){
+      const last = ladder(al[al.length - 1]);
+      $("capFrac").textContent = "端数" + yen(cap - low) + "が" + ARMY_DEF[ARMY_DEF.length - 1].name + STEP_RATIO.length + "段目に入ります（" +
+        ARMY_DEF[ARMY_DEF.length - 1].name + STEP_RATIO.length + "段目 " + yen(last[last.length - 1]) + "）";
+    } else $("capFrac").textContent = "軍資金は" + yen(MIN_CAPITAL) + "以上にしてください。";
+    $("capLow").textContent = low != null ? yen(low) : ""; $("capLow").dataset.v = low != null ? low : "";
+    $("capUp").textContent = up != null ? yen(up) : ""; $("capUp").dataset.v = up != null ? up : "";
+    $("capLowWrap").hidden = low == null; $("capUpWrap").hidden = up == null;
+    $("capSep").hidden = low == null || up == null;
+    box.hidden = false;
+  }
+
   function render(){
     const bet = currentBet();
     const goal = isGoal();
@@ -554,7 +641,11 @@ td.jp{font-family:var(--font-body)}
       const a = state.armies[bet.i];
       $("betWho").innerHTML = '<span class="c' + a.lane + '">' + a.name + '・' + (bet.step + 1) + '段目</span>';
       $("betAmt").textContent = yen(bet.amount);
+      const n = needOdds(a.alloc, a.funds, bet.amount);
+      $("needOdds").innerHTML = '必要な合成オッズ：<b>' + n.label + '倍以上</b> <span class="num">（払戻 ' + yen(n.pay) + '以上）</span>';
+      $("needOdds").hidden = false;
     } else {
+      $("needOdds").hidden = true;
       $("betWho").textContent = "—";
       $("betAmt").textContent = "¥0";
     }
@@ -573,7 +664,7 @@ td.jp{font-family:var(--font-body)}
         hint.className = "hint warn";
       } else {
         hint.textContent = "この段で当たったとき、" + a.name + "の負けを取り戻すには払戻 " + yen(need) +
-          " 以上が必要です（合成オッズ1.5倍なら " + yen(Math.floor(bet.amount * 1.5)) + "）。";
+          " 以上が必要です（合成オッズ" + OK_ODDS + "倍なら " + yen(Math.floor(bet.amount * OK_ODDS)) + "）。";
         hint.className = "hint";
       }
     }
@@ -593,9 +684,11 @@ td.jp{font-family:var(--font-body)}
       const dead = !alive(a);
       const on = i === act && !goal;
       const pill = dead ? '<span class="pill dead">全滅</span>' : on ? '<span class="pill on">出撃中</span>' : '<span class="pill wait">待機</span>';
+      const needs = stepNeeds(a);
       const steps = a.ladder.map((v, k) => {
         const cls = dead || k < a.step ? "gone" : (on && k === a.step ? "now" : "");
-        return '<div class="step ' + cls + '"><small>' + (k + 1) + '段目</small><b>' + yen(v) + '</b></div>';
+        const nd = needs[k] ? '<small class="need" title="この段で当たったときに必要な払戻 ' + yen(needs[k].pay) + '">' + needs[k].label + '倍〜</small>' : "";
+        return '<div class="step ' + cls + '"><small>' + (k + 1) + '段目</small><b>' + yen(v) + '</b>' + nd + '</div>';
       }).join("");
       const revive = dead && a.funds < a.alloc ? '<div class="revive">復活まで あと' + yen(a.alloc - a.funds) + '</div>' : "";
       return '<div class="army' + (on ? " active" : "") + (dead ? " dead" : "") + '">' +
@@ -618,6 +711,7 @@ td.jp{font-family:var(--font-body)}
           '</td><td class="jp" style="text-align:left">' + (r.note || "") + '</td></tr>').reverse().join("") + '</tbody>';
 
     $("capital").value = state.capital;
+    renderCapHint();
     $("targetRate").value = state.targetRate;
     $("setupHint").textContent = "目標 " + yen(state.capital + state.target) + "（回収率" + state.targetRate + "%・利益 " + yen(state.target) + "）／ 歩兵 " + yen(state.armies[0].alloc) +
       "・騎馬隊 " + yen(state.armies[1].alloc) + "・本隊 " + yen(state.armies[2].alloc);
@@ -639,7 +733,7 @@ td.jp{font-family:var(--font-body)}
     const inv = os.reduce((s, v) => s + 1 / v, 0);
     const combined = 1 / inv;
     // 100円単位で、最低払戻が最大になるよう配分
-    const units = Math.floor(B / 100);
+    const units = Math.floor(B / UNIT);
     const alloc = os.map(v => Math.floor(units * (1 / v) / inv));
     let left = units - alloc.reduce((s, v) => s + v, 0);
     while (left-- > 0){
@@ -647,14 +741,32 @@ td.jp{font-family:var(--font-body)}
       for (let i = 1; i < os.length; i++) if (alloc[i] * os[i] < alloc[k] * os[k]) k = i;
       alloc[k]++;
     }
-    const pays = alloc.map((u, i) => Math.floor(u * 100 * os[i] / 10 + 1e-9) * 10);
+    // 払戻は10円単位で切り捨て（ボートレースの払戻の単位）
+    const pays = alloc.map((u, i) => Math.floor(u * UNIT * os[i] / 10 + 1e-9) * 10);
     const minPay = Math.min(...pays);
     const eff = B > 0 ? Math.floor(minPay / B * 100) / 100 : 0;
+    // 払戻の最低額が、この段の必要払戻に届いているか
+    const judge = $("calcJudge");
+    if (bet && !isGoal()){
+      const a = state.armies[bet.i], need = needOdds(a.alloc, a.funds, B).pay;
+      judge.innerHTML = '必要払戻 ' + yen(need) + ' に対して払戻の最低額 ' + yen(minPay) + '：' +
+        (minPay >= need ? '<span class="judge-ok">OK</span>' : '<span class="judge-ng">不足（あと' + yen(need - minPay) + '）</span>');
+      judge.hidden = false;
+    } else judge.hidden = true;
     $("calcTbl").innerHTML = '<thead><tr><th>買い目</th><th>オッズ</th><th>購入額</th><th>的中時払戻</th></tr></thead><tbody>' +
-      os.map((v, i) => '<tr><td>' + (i + 1) + '</td><td>' + v.toFixed(1) + '倍</td><td>' + yen(alloc[i] * 100) + '</td><td>' + yen(pays[i]) + '</td></tr>').join("") +
+      os.map((v, i) => '<tr><td>' + (i + 1) + '</td><td>' + v.toFixed(1) + '倍</td><td>' + yen(alloc[i] * UNIT) + '</td><td>' + yen(pays[i]) + '</td></tr>').join("") +
       '<tr><td class="jp"><b>合成オッズ</b></td><td><b>' + combined.toFixed(2) + '倍</b></td><td><b>' + yen(B) + '</b></td><td class="jp">最低 ' + yen(minPay) + '（実質 ' + eff.toFixed(2) + '倍）</td></tr></tbody>';
   }
 
+  $("capital").addEventListener("input", renderCapHint);
+  ["capLow", "capUp"].forEach(id => $(id).addEventListener("click", e => {
+    // 入力欄に入れるだけで、開始はしない
+    $("capital").value = e.currentTarget.dataset.v; renderCapHint(); $("capital").focus();
+  }));
+  // 画面の説明文に比率・単位・目安のオッズを入れる
+  const TEXT = {army: ARMY_RATIO.join(":"), step: STEP_RATIO.join(":"), unit: UNIT.toLocaleString("ja-JP"), ok: String(OK_ODDS)};
+  document.querySelectorAll("[data-k]").forEach(el => { el.textContent = TEXT[el.dataset.k]; });
+  $("capital").min = MIN_CAPITAL;
   $("addTicket").addEventListener("click", () => { if (tickets.length < 20){ tickets.push(5.0); renderTickets(); renderCalc(); } });
   $("hitBtn").addEventListener("click", () => settle(true));
   $("missBtn").addEventListener("click", () => settle(false));
@@ -704,10 +816,10 @@ td.jp{font-family:var(--font-body)}
     save(); render();
   });
   $("startBtn").addEventListener("click", () => {
-    const cap = Math.floor((parseFloat($("capital").value) || 0) / 100) * 100;
+    const cap = capInput();
     const rate = parseFloat($("targetRate").value);
     const err = $("setupErr");
-    if (!allocate(cap)){ err.textContent = "軍資金は9,100円以上にしてください（歩兵1段目を100円にするための最低額です）。"; err.hidden = false; return; }
+    if (!allocate(cap)){ err.textContent = "軍資金は" + yen(MIN_CAPITAL) + "以上にしてください（歩兵1段目を" + yen(UNIT) + "にするための最低額です）。"; err.hidden = false; return; }
     if (!(rate > 100)){ err.textContent = "目標回収率は100%より大きい値（例：105、110）で入力してください。"; err.hidden = false; return; }
     err.hidden = true;
     state = newState(cap, rate); undoStack = [];
