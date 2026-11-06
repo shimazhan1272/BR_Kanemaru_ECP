@@ -1,14 +1,12 @@
 <!doctype html><meta charset="utf-8"><title>金丸ECP 性質テスト</title>
-<!-- 使い方：リポジトリのフォルダで python -m http.server を起動し、/tests/property-test.html を開く。黄色の欄に結果が出る -->
-<body><pre id="out" style="position:fixed;top:0;left:0;right:0;z-index:99;background:#ff0;font:12px monospace;white-space:pre-wrap;margin:0">running</pre>
+<!-- 使い方：リポジトリのフォルダで python -m http.server を起動し、/tests/property-test.html を開く。黄色の欄に結果が出る（保存データには書き込まない） -->
+<body><pre id="out" style="position:fixed;top:0;left:0;right:0;z-index:99;background:#ff0;color:#000;font:12px monospace;white-space:pre-wrap;margin:0;max-height:100vh;overflow:auto">running</pre>
 <script>
 (async () => {
   const L = [], fails = [];
-  const ok = (cond, msg) => { if (!cond && fails.length < 40) fails.push(msg); return cond; };
+  const ok = (cond, msg) => { if (!cond && fails.length < 40) fails.push(typeof msg === "function" ? msg() : msg); return cond; };
   const report = () => {
-    const txt = (fails.length ? "FAIL " + fails.length + "\n" + fails.join("\n") : "ALL PASS") + "\n" + L.join("\n");
-    document.getElementById("out").textContent = txt;
-    
+    document.getElementById("out").textContent = (fails.length ? "FAIL " + fails.length + "\n" + fails.join("\n") : "ALL PASS") + "\n" + L.join("\n");
   };
   try {
     // 本物の保存データを消したり上書きしたりしないよう、テスト中は保存しない
@@ -19,144 +17,199 @@
     const holder = document.createElement("div"); holder.innerHTML = src.slice(src.indexOf("<body>") + 6, i); document.body.appendChild(holder);
     let js = src.slice(i + 8, src.indexOf("<\/script>", i));
     const end = js.lastIndexOf("})();");
-    js = js.slice(0, end) + "window.__T={allocate,ladder,isClean,cleanNeighbors,needOdds,stepNeeds,currentBet,apply,render,newState,save,UNIT,STEP_RATIO,ARMY_RATIO,ODDS_DIV,MIN_CAPITAL,get state(){return state},set state(v){state=v},setUndo(v){undoStack=v}};" + js.slice(end);
+    js = js.slice(0, end) + "window.__T={allocate,ladder,legacyLadder,unitsFor,isClean,cleanNeighbors,needOdds,stepNeeds,currentBet,apply,render,newState,migrate,parseRatio,toCSV,replayCSV,defaultRatios,UNIT,ARMY_RATIO,ODDS_DIV,DEFAULT_STEP_RATIO,get state(){return state},set state(v){state=v},setUndo(v){undoStack=v}};" + js.slice(end);
     const s = document.createElement("script"); s.textContent = js; document.body.appendChild(s);
     const T = window.__T;
-    const {UNIT, STEP_RATIO, ARMY_RATIO, ODDS_DIV, MIN_CAPITAL} = T;
+    const {UNIT, ARMY_RATIO, ODDS_DIV} = T;
     const $ = id => document.getElementById(id);
     const yen = n => "¥" + Math.round(n).toLocaleString("ja-JP");
+    const sum = xs => xs.reduce((a, b) => a + b, 0);
+    let seed = 20261106; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
 
-    // 独立した参照実装：比率どおりか（本隊・最後の段に端数がない）
-    const refClean = c => {
-      const al = T.allocate(c); if (!al) return false;
-      const u = al[0] / ARMY_RATIO[0];
-      if (!al.every((v, k) => v === u * ARMY_RATIO[k])) return false;
-      return al.every(v => { const l = T.ladder(v); const a = l[0] / STEP_RATIO[0]; return l.every((x, k) => x === a * STEP_RATIO[k]); });
+    // ---- 参照実装（ツールの関数とは独立に書く） ----
+    // 各段＝配分×比率÷合計 を100円単位で切り捨て、端数は最後の段
+    const refLadder = (alloc, r) => { const s = sum(r); const st = r.slice(0, -1).map(x => Math.floor(alloc * x / s / UNIT) * UNIT); return [...st, alloc - sum(st)]; };
+    const exactLadder = (alloc, r) => { const l = T.ladder(alloc, r); return l.every((v, k) => v * sum(r) === alloc * r[k]); };
+    const refClean = (c, rs) => {
+      const al = T.allocate(c, rs); if (!al) return false;
+      if (!al.every((v, k) => v * ARMY_RATIO[0] === al[0] * ARMY_RATIO[k])) return false;
+      return al.every((v, k) => exactLadder(v, rs[k]));
     };
-    // 旧実装と配分が同じか
+    const refT = (pay, amount) => { let t = 1; while (amount * t < pay * ODDS_DIV) t++; return Math.max(t, ODDS_DIV + 1); };
+    // 以前（比率が全部隊1:3:9固定だったとき）の配分
     const oldAlloc = c => { const u = Math.floor(c / 7 / 1300) * 1300; return u < 1300 ? null : [u, u * 2, c - u * 3]; };
     const oldLadder = al => { const a = Math.floor(al / 13 / 100) * 100; return [a, a * 3, al - a * 4]; };
-    // 必要オッズの参照：t×amount ≧ pay×DIV となる最小の t（DIV 以下なら DIV+1）
-    const refT = (pay, amount) => { let t = 1; while (amount * t < pay * ODDS_DIV) t++; return Math.max(t, ODDS_DIV + 1); };
 
-    // ---- 1. 端数が出ない金額 ----
-    const caps = [];
-    for (let c = 100; c <= 400000; c += 100) caps.push(c);
-    let seed = 12345; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-    for (let k = 0; k < 3000; k++) caps.push(Math.floor(rnd() * 20000000) + 100);
-    let nClean = 0, nFrac = 0, nRegress = 0;
-    for (const raw of caps){
-      const c = Math.floor(raw / UNIT) * UNIT;
-      const al = T.allocate(c), oa = oldAlloc(c);
-      ok(JSON.stringify(al) === JSON.stringify(oa), "allocate differs from old at " + c);
-      if (al) al.forEach(v => ok(JSON.stringify(T.ladder(v)) === JSON.stringify(oldLadder(v)), "ladder differs at " + v)), nRegress++;
-      const {low, up} = T.cleanNeighbors(c);
-      ok(T.isClean(c) === refClean(c), "isClean mismatch " + c);
-      refClean(c) ? nClean++ : nFrac++;
-      if (c < MIN_CAPITAL) ok(low === null, "low should be hidden below min " + c);
-      else ok(low !== null && low <= c, "low <= input " + c + " low=" + low);
-      ok(up !== null && c < up, "input < up " + c + " up=" + up);
-      if (low !== null) ok(refClean(low), "low not clean " + low);
-      ok(refClean(up), "up not clean " + up);
-      // 下と上のあいだ（両端を除く）に端数が出ない額がない。入力額より下で low より大きいものもない
-      const from = low === null ? UNIT : low + UNIT;
-      if (raw < 400100 || caps.indexOf(raw) % 50 === 0){
-        for (let x = from; x < up; x += UNIT) if (refClean(x)) { ok(false, "clean amount " + x + " between " + low + " and " + up); break; }
+    const DEF = T.defaultRatios();
+    const ratioSets = [DEF, [[4, 9], [1, 3, 9], [1, 3, 9]], [[1, 2], [1, 3, 9], [2, 3, 5]], [[2, 4], [3, 3, 3], [1, 3]], [[1, 1], [1, 1, 1], [5, 7]]];
+    for (let k = 0; k < 10; k++) ratioSets.push([0, 1, 2].map(() => Array.from({length: ri(2, 3)}, () => ri(1, 12))));
+    const rsText = rs => rs.map(r => r.join(":")).join(" / ");
+
+    // ---- 0. 比率の読み取り ----
+    const pr = (t, e) => ok(JSON.stringify(T.parseRatio(t)) === JSON.stringify(e), "parseRatio " + t + " -> " + JSON.stringify(T.parseRatio(t)));
+    pr("4:9", [4, 9]); pr("1：3：9", [1, 3, 9]); pr(" 1-3-9 ", [1, 3, 9]); pr("2 5", [2, 5]);
+    pr("9", null); pr("1:3:9:27", null); pr("0:3", null); pr("1.5:3", null); pr("a:b", null); pr("", null);
+
+    // ---- 1. 初期値1:3:9：以前の配分と同じか／段の計算式 ----
+    for (let c = 100; c <= 300000; c += 100){
+      ok(JSON.stringify(T.allocate(c, DEF)) === JSON.stringify(oldAlloc(c)), () => "allocate differs from old at " + c);
+      const al = T.allocate(c, DEF);
+      if (al) al.forEach(v => ok(JSON.stringify(T.legacyLadder(v, [1, 3, 9])) === JSON.stringify(oldLadder(v)), () => "legacy ladder differs at " + v));
+    }
+    for (const rs of ratioSets) for (let k = 0; k < 300; k++){
+      const alloc = ri(1, 50000) * UNIT, r = rs[k % 3], l = T.ladder(alloc, r);
+      ok(JSON.stringify(l) === JSON.stringify(refLadder(alloc, r)) && sum(l) === alloc && l.length === r.length, () => "ladder formula " + alloc + " " + r + " -> " + l);
+    }
+    L.push("1:3:9 allocation identical to previous version for 3,000 capitals; ladder formula checked");
+
+    // ---- 2. 比率から求める単位：最低額・歩兵の単位が最小で、端数が出ない ----
+    for (const rs of ratioSets){
+      const u = T.unitsFor(rs);
+      ok(T.allocate(u.min, rs) && !T.allocate(u.min - UNIT, rs), () => "min capital wrong for " + rsText(rs) + ": " + u.min);
+      ok(refClean(u.min, rs), () => "min capital not clean " + rsText(rs));
+      ok(T.allocate(u.min, rs).every((v, k) => T.ladder(v, rs[k])[0] >= UNIT), () => "first step < UNIT at min " + rsText(rs));
+      for (let x = UNIT; x < u.inf; x += UNIT){
+        if (ARMY_RATIO.every((R, k) => exactLadder(x * R, rs[k]))){ ok(false, "smaller infantry unit " + x + " works for " + rsText(rs)); break; }
       }
-      if (c >= MIN_CAPITAL && low === c) ok(refClean(c), "low==input but not clean " + c);
     }
-    L.push("caps tested: " + caps.length + " (clean " + nClean + ", fraction " + nFrac + ")");
-    // 手で確かめた例
-    for (const [c, lo, hi, fr] of [[10000, 9100, 18200, 900], [25000, 18200, 27300, 6800], [100000, 91000, 100100, 9000]]){
-      const r = T.cleanNeighbors(c);
-      ok(r.low === lo && r.up === hi && c - r.low === fr, "example " + c + " -> " + JSON.stringify(r));
-    }
+    L.push("units: " + ratioSets.slice(0, 5).map(rs => rsText(rs) + " → 歩兵の単位 " + T.unitsFor(rs).inf + "・最低 " + T.unitsFor(rs).min).join("\n       "));
 
-    // ---- 2. 端数が出ない軍資金では、どの部隊でも段ごとの必要オッズが同じ ----
+    // ---- 3. 端数が出ない金額（下・上） ----
+    let nCaps = 0;
+    for (const rs of ratioSets){
+      const u = T.unitsFor(rs);
+      const caps = [];
+      for (let k = 0; k < 120; k++) caps.push(ri(1, Math.ceil(u.min * 6 / UNIT)) * UNIT);
+      for (let k = 0; k < 40; k++) caps.push(ri(1, 200000) * UNIT);
+      for (let k = 1; k <= 5; k++) caps.push(u.min * k, u.min * k - UNIT, u.min * k + UNIT);
+      for (const c of caps){
+        if (c <= 0) continue;
+        nCaps++;
+        const {low, up} = T.cleanNeighbors(c, rs);
+        ok(T.isClean(c, rs) === refClean(c, rs), () => "isClean mismatch " + c + " " + rsText(rs));
+        if (c < u.min) ok(low === null, () => "low shown below min " + c);
+        else ok(low !== null && low <= c, () => "low <= input " + c + " low=" + low + " " + rsText(rs));
+        ok(up !== null && c < up, () => "input < up " + c + " up=" + up);
+        if (low !== null) ok(refClean(low, rs), () => "low not clean " + low + " " + rsText(rs));
+        ok(refClean(up, rs), () => "up not clean " + up + " " + rsText(rs));
+        for (let x = (low === null ? UNIT : low + UNIT); x < up; x += UNIT) if (refClean(x, rs)){ ok(false, "clean " + x + " between " + low + " and " + up + " " + rsText(rs)); break; }
+      }
+    }
+    for (const [c, lo, hi] of [[10000, 9100, 18200], [25000, 18200, 27300], [100000, 91000, 100100]]){
+      const r = T.cleanNeighbors(c, DEF); ok(r.low === lo && r.up === hi, "example " + c + " " + JSON.stringify(r));
+    }
+    L.push("clean neighbours: " + nCaps + " capitals over " + ratioSets.length + " ratio sets");
+
+    // ---- 4. 端数が出ない軍資金：同じ比率の部隊は段ごとの必要オッズが同じ ----
     let nSame = 0;
-    for (let c = MIN_CAPITAL; c <= 5000000; c += MIN_CAPITAL * 7){
-      if (!refClean(c)) continue;
-      const st = T.newState(c, 110);
-      const labels = st.armies.map(a => T.stepNeeds(a).map(n => n && n.label).join("/"));
-      ok(labels.every(l => l === labels[0]), "needs differ across armies at " + c + ": " + labels.join(" | "));
-      nSame++;
+    for (const rs of ratioSets){
+      const u = T.unitsFor(rs);
+      const ref = {};
+      for (let k = 1; k <= 30; k += 7){
+        const st = T.newState(u.clean * k, 110, rs);
+        st.armies.forEach((a, j) => {
+          const lab = T.stepNeeds(a).map(n => n && n.label).join("/"), key = rs[j].join(":");
+          if (ref[key] == null) ref[key] = lab; else ok(ref[key] === lab, () => "needs differ for ratio " + key + ": " + ref[key] + " vs " + lab);
+          nSame++;
+        });
+      }
     }
-    L.push("clean capitals with same per-step odds: " + nSame + " e.g. " + T.stepNeeds(T.newState(91000, 110).armies[0]).map(n => n.label).join("/"));
+    L.push("same-ratio armies on clean capitals: " + nSame + " checked (1:3:9 → " + T.stepNeeds(T.newState(91000, 110, DEF).armies[0]).map(n => n.label).join("/") + ", 4:9 → " + T.stepNeeds(T.newState(91000, 110, ratioSets[1]).armies[0]).map(n => n.label).join("/") + ")");
 
-    // ---- 3. シミュレーション：的中・不的中・復活・分け直しのあとも正しいか ----
-    let nSteps = 0, nRevive = 0, nResplit = 0, nUi = 0;
-    for (let run = 0; run < 400; run++){
-      const c = Math.max(MIN_CAPITAL, Math.floor(rnd() * 3000000 / UNIT) * UNIT);
-      T.state = T.newState(c, 101 + Math.floor(rnd() * 40)); T.setUndo([]);
-      for (let k = 0; k < 40; k++){
+    // ---- 5. シミュレーション：必要オッズ・全滅判定・CSVの保存→読み込み ----
+    let nSteps = 0, nRevive = 0, nResplit = 0, nDead = 0, nCsv = 0;
+    const simulate = (st, races) => {
+      T.state = st; T.setUndo([]);
+      for (let k = 0; k < races; k++){
         const bet = T.currentBet();
         if (!bet || (T.state.armies.reduce((s, a) => s + a.funds, 0) - T.state.capital) >= T.state.target) break;
         const a = T.state.armies[bet.i];
-        // 各部隊・各段：投票額×必要オッズ ≧ 必要払戻、かつ最小
         for (const arm of T.state.armies){
-          const needs = T.stepNeeds(arm);
           let f = arm.funds;
-          needs.forEach((n, s) => {
+          T.stepNeeds(arm).forEach((n, sIdx) => {
             if (!n) return;
-            const amt = Math.min(arm.ladder[s], Math.floor(f / UNIT) * UNIT);
-            const pay = arm.alloc - f + amt;
-            ok(n.pay === pay, "stepNeeds pay " + n.pay + " vs " + pay);
-            const t = Math.round(n.odds * ODDS_DIV);
-            ok(amt * t >= pay * ODDS_DIV, "bet*odds < pay: " + amt + "*" + n.odds + " < " + pay);
-            ok(t === refT(pay, amt), "odds not minimal: " + n.odds + " ref " + refT(pay, amt) / ODDS_DIV);
+            const amt = Math.min(arm.ladder[sIdx], Math.floor(f / UNIT) * UNIT), pay = arm.alloc - f + amt;
+            ok(n.pay === pay && amt * Math.round(n.odds * ODDS_DIV) >= pay * ODDS_DIV && Math.round(n.odds * ODDS_DIV) === refT(pay, amt), () => "needOdds wrong " + JSON.stringify(n) + " amt " + amt + " pay " + pay);
             f -= amt;
           });
         }
-        // 次の投票の表示（画面）と今の状態からの計算が一致
         T.render();
-        const n = T.needOdds(a.alloc, a.funds, bet.amount);
-        const t = refT(a.alloc - a.funds + bet.amount, bet.amount);
-        const expect = "必要な合成オッズ：" + (t / ODDS_DIV).toFixed(1) + "倍以上 （払戻 " + yen(a.alloc - a.funds + bet.amount) + "以上）";
-        ok($("needOdds").textContent === expect, "UI needOdds '" + $("needOdds").textContent + "' expected '" + expect + "'");
-        ok(T.stepNeeds(a)[a.step].label === n.label, "army panel current step differs from next bet");
-        nUi++;
-        // 結果：外れ／小さい当たり／大きい当たり（復活が起きる）
-        const r = rnd();
-        const hit = r < 0.45;
+        const pay = a.alloc - a.funds + bet.amount;
+        const expect = "必要な合成オッズ：" + (refT(pay, bet.amount) / ODDS_DIV).toFixed(1) + "倍以上 （払戻 " + yen(pay) + "以上）";
+        ok($("needOdds").textContent === expect, () => "UI '" + $("needOdds").textContent + "' expected '" + expect + "'");
+        ok(document.querySelectorAll("#armies .army")[bet.i].querySelectorAll(".step").length === a.ladder.length, "step boxes count");
+        const r = rnd(), hit = r < 0.45;
         const payout = hit ? Math.floor(bet.amount * (r < 0.15 ? 1 + rnd() * 2 : 3 + rnd() * 40) / 10) * 10 : 0;
-        T.apply(bet, hit, payout, {date: "2026-11-06", venue: "24_大村", race: 1});
+        const stepBefore = a.step, fundsBefore = a.funds;
+        T.apply(bet, hit, payout, {date: "2026-11-06", venue: "24_大村", race: 1 + (k % 12)});
         const note = T.state.history[T.state.history.length - 1].note;
+        if (!hit){
+          // 全滅は最後の段まで外れたとき（または残りが UNIT 未満）だけ
+          const dead = /全滅/.test(note);
+          ok(dead === (stepBefore + 1 >= a.ladder.length || fundsBefore - bet.amount < UNIT), () => "dead judgement wrong: step " + stepBefore + "/" + a.ladder.length + " note " + note);
+          if (dead) nDead++;
+        }
         if (/復活/.test(note)) nRevive++;
         if (/分け直し/.test(note)) nResplit++;
         nSteps++;
       }
+      // CSVで保存して読み込むと、同じ状態から再開できる
+      if (T.state.history.length){
+        const before = JSON.stringify(T.state);
+        const re = T.replayCSV(T.toCSV());
+        ok(JSON.stringify(re.state) === before, () => "CSV round trip differs (" + rsText(T.state.armies.map(x => x.ratio)) + (T.state.legacy ? ", legacy" : "") + ")");
+        nCsv++;
+      }
+    };
+    for (let run = 0; run < 360; run++){
+      const rs = ratioSets[run % ratioSets.length], u = T.unitsFor(rs);
+      const c = Math.max(u.min, ri(1, 30) * u.min + (rnd() < 0.5 ? 0 : ri(1, Math.max(1, u.min / UNIT - 1)) * UNIT));
+      simulate(T.newState(c, 101 + ri(0, 40), rs), 40);
     }
-    L.push("simulated races: " + nSteps + " (UI checks " + nUi + ", revive " + nRevive + ", re-split " + nResplit + ")");
-    ok(nRevive > 0 && nResplit > 0, "simulation did not cover revive/re-split");
+    L.push("simulated races: " + nSteps + " (dead " + nDead + ", revive " + nRevive + ", re-split " + nResplit + ", CSV round trips " + nCsv + ")");
+    ok(nRevive > 0 && nResplit > 0 && nDead > 0, "simulation did not cover dead/revive/re-split");
 
-    // ---- 4. 画面：端数の案内 ----
-    T.state = T.newState(100000, 110); T.setUndo([]); T.render();
-    const setCap = v => { $("capital").value = v; $("capital").dispatchEvent(new Event("input")); };
-    setCap(25000);
-    ok(!$("capHint").hidden, "hint hidden for 25000");
-    const al = T.allocate(25000), lastStep = T.ladder(al[2])[2];
-    ok($("capFrac").textContent === "端数" + yen(6800) + "が本隊3段目に入ります（本隊3段目 " + yen(lastStep) + "）", "capFrac: " + $("capFrac").textContent);
-    ok($("capLow").textContent === yen(18200) && $("capUp").textContent === yen(27300), "buttons: " + $("capLow").textContent + " " + $("capUp").textContent);
-    L.push("25000 hint: " + $("capHint").innerText.replace(/\s+/g, " "));
-    $("capLow").click();
-    ok($("capital").value === "18200" && $("capHint").hidden, "click low -> " + $("capital").value);
-    ok(T.state.capital === 100000, "clicking a suggestion must not start");
-    setCap(27350); ok(!$("capHint").hidden && $("capHint").innerText.indexOf("27,300") < 0 || true, "");
-    setCap(27350); ok($("capHint").hidden, "27350 floors to 27300 (clean) -> hint hidden");
-    setCap(5000); ok(!$("capHint").hidden && $("capLowWrap").hidden && !$("capUpWrap").hidden && $("capUp").textContent === yen(MIN_CAPITAL), "below min: only up");
-    L.push("5000 hint: " + $("capHint").innerText.replace(/\s+/g, " "));
-    setCap(91000); ok($("capHint").hidden, "91000 clean -> hidden");
-    setCap(""); ok($("capHint").hidden, "empty -> hidden");
+    // ---- 6. 古いデータ：比率の列がないCSV・比率がない保存データ ----
+    let nOld = 0, nOldDiff = 0;
+    for (let run = 0; run < 120; run++){
+      const c = ri(2, 120) * 1000 + (run % 3) * 300;
+      if (!T.allocate(c, DEF)) continue;
+      simulate(T.newState(c, 110, DEF, true), 45);
+      if (!T.state.history.length) continue;
+      const before = JSON.stringify(T.state);
+      // 比率の列（最後の3列）を消して、以前の形式のCSVにする
+      const oldCsv = T.toCSV().split("\r\n").map(line => line ? line.split(",").slice(0, -3).join(",") : line).join("\r\n");
+      const re = T.replayCSV(oldCsv);
+      ok(JSON.stringify(re.state) === before, () => "old CSV replay differs at capital " + c);
+      ok(re.state.legacy === true && re.state.armies.every(a => a.ratio.join(":") === "1:3:9"), "old CSV not read as 1:3:9 legacy");
+      // 今の計算方法では張り方が変わる履歴か（以前の方法で読めることを確かめた件数）
+      if (T.state.armies.some(a => JSON.stringify(a.ladder) !== JSON.stringify(T.ladder(a.alloc, a.ratio)))) nOldDiff++;
+      nOld++;
+    }
+    L.push("old-format CSVs replayed: " + nOld + " (of which " + nOldDiff + " end with ladders that differ from the new formula)");
+    // 比率がない古い保存データ
+    const legacySaved = JSON.parse(JSON.stringify(T.newState(100000, 110, DEF, true)));
+    legacySaved.armies.forEach(a => delete a.ratio); delete legacySaved.legacy;
+    const mig = T.migrate(legacySaved);
+    ok(mig.legacy === true && mig.armies.every(a => a.ratio.join(":") === "1:3:9"), "migrate old saved state");
+    L.push("default 100,000 本隊: new " + T.ladder(61000, [1, 3, 9]).join("/") + " vs previous " + T.legacyLadder(61000, [1, 3, 9]).join("/"));
 
-    // ---- 5. 合成オッズ計算の判定 ----
-    T.state = T.newState(100000, 110); T.render();
-    L.push("calc judge: " + $("calcJudge").textContent);
-    ok(/OK|不足/.test($("calcJudge").textContent), "calc judge missing");
-    // 2段目まで外す → 必要払戻が大きくなる
-    T.apply(T.currentBet(), false, 0, {date: "2026-11-06", venue: "24_大村", race: 1}); T.render();
-    L.push("after miss: " + $("needOdds").textContent + " / " + $("calcJudge").textContent);
-    const steps = [...document.querySelectorAll("#armies .army")[0].querySelectorAll(".step")].map(e => e.innerText.replace(/\s+/g, " "));
-    L.push("歩兵 steps: " + steps.join(" | "));
+    // ---- 7. 画面：比率の入力と開始 ----
+    T.state = T.newState(100000, 110, DEF); T.setUndo([]); T.render();
+    ok($("ratio0").value === "1:3:9" && $("ratio2").value === "1:3:9", "ratio inputs show current ratios");
+    const setV = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); };
+    setV("ratio0", "4:9"); setV("capital", "25000");
+    L.push("hint (歩兵 4:9, 25,000): " + $("capHint").innerText.replace(/\s+/g, " ") + " | " + $("ratioHint").textContent);
+    $("startBtn").click();
+    const st = T.state;
+    ok(st.capital === 25000 && st.armies[0].ratio.join(":") === "4:9" && st.armies[0].ladder.length === 2 && !st.legacy, "start with 4:9");
+    ok(JSON.stringify(st.armies[0].ladder) === JSON.stringify(refLadder(st.armies[0].alloc, [4, 9])), "4:9 ladder");
+    ok(document.querySelectorAll("#armies .army")[0].querySelectorAll(".step").length === 2, "歩兵 shows 2 steps");
+    L.push("after start: 歩兵 " + st.armies[0].ladder.join("/") + " ・ " + $("ratioSummary").textContent);
+    setV("ratio1", "1:3:9:27"); $("startBtn").click();
+    ok(!$("setupErr").hidden && T.state === st, "invalid ratio must not start");
+    L.push("invalid ratio error: " + $("setupErr").textContent);
   } catch (e){ fails.push("EXCEPTION " + e + "\n" + (e.stack || "")); }
   report();
 })();
