@@ -141,6 +141,7 @@ td.jp{font-family:var(--font-body)}
   .row > label{flex:1 1 0;min-width:0}
   .row input,.row input[type=text].ratio{width:100%}
   .row > button{flex:1 1 100%;padding-block:12px}
+  .row > button.sub{flex:1 1 100%;padding-block:8px;font-size:14px}
   .race-fields{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px}
   .race-fields > label:first-child{grid-column:1/-1}
   .race-fields input,.race-fields select{width:100%}
@@ -171,6 +172,9 @@ td.jp{font-family:var(--font-body)}
       <label for="ratio0"><span><span class="c5">歩兵</span>の段比率</span><input id="ratio0" class="ratio" type="text" autocomplete="off" spellcheck="false"></label>
       <label for="ratio1"><span><span class="c4">騎馬隊</span>の段比率</span><input id="ratio1" class="ratio" type="text" autocomplete="off" spellcheck="false"></label>
       <label for="ratio2"><span><span class="c3">本隊</span>の段比率</span><input id="ratio2" class="ratio" type="text" autocomplete="off" spellcheck="false"></label>
+      <button type="button" class="sub" id="ratioReset">初期値に戻す</button>
+    </div>
+    <div class="row" style="margin-top:12px">
       <button class="primary" id="startBtn">この金額で開始</button>
     </div>
     <p class="hint" id="ratioHint"></p>
@@ -866,6 +870,12 @@ td.jp{font-family:var(--font-body)}
   const TEXT = {army: ARMY_RATIO.join(":"), step: ratioText(DEFAULT_STEP_RATIO), counts: STEP_COUNTS.join("段か") + "段", unit: UNIT.toLocaleString("ja-JP"), ok: String(OK_ODDS)};
   document.querySelectorAll("[data-k]").forEach(el => { el.textContent = TEXT[el.dataset.k]; });
   ARMY_DEF.forEach((_, i) => $("ratio" + i).addEventListener("input", renderCapHint));
+  // 段比率の欄を初期値に戻すだけで、開始はしない（反映は「この金額で開始」）
+  $("ratioReset").textContent = "初期値（" + ratioText(DEFAULT_STEP_RATIO) + "）に戻す";
+  $("ratioReset").addEventListener("click", () => {
+    ARMY_DEF.forEach((_, i) => { $("ratio" + i).value = ratioText(DEFAULT_STEP_RATIO); });
+    renderCapHint();
+  });
   $("addTicket").addEventListener("click", () => { if (tickets.length < 20){ tickets.push(5.0); renderTickets(); renderCalc(); } });
   $("hitBtn").addEventListener("click", () => settle(true));
   $("missBtn").addEventListener("click", () => settle(false));
