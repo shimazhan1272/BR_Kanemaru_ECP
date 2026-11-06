@@ -32,7 +32,8 @@
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.6;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
-.wrap{max-width:880px;margin:0 auto;display:grid;gap:20px}
+/* 履歴表などの幅で列が広がらないよう minmax(0,1fr) にする */
+.wrap{max-width:880px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
 .num{font-family:var(--font-num);font-variant-numeric:tabular-nums}
 h1{font-family:var(--font-display);font-weight:400;font-size:clamp(24px,5vw,34px);line-height:1.2;margin:0;text-wrap:balance}
 h1 .x{color:var(--hit)}
@@ -81,7 +82,6 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .plus{color:var(--good)} .minus{color:var(--hit)}
 .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
 .bar i{display:block;height:100%;background:var(--good);width:0;transition:width .3s}
-@media (max-width:480px){.stat{padding:10px}.stat b{font-size:16px}}
 
 /* 部隊 */
 .armies{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
@@ -121,6 +121,26 @@ td.jp{font-family:var(--font-body)}
 .empty{color:var(--muted);font-size:14px;padding:8px 0}
 .rules{margin:0;padding-left:1.2em;color:var(--muted);font-size:14px;display:grid;gap:4px;max-width:70ch}
 @media (prefers-reduced-motion:reduce){.bar i{transition:none}}
+
+/* スマートフォン：入力欄を画面幅いっぱいに並べ、ボタンを押しやすくする */
+@media (max-width:560px){
+  body{padding-block:16px 40px}
+  .panel{padding:14px}
+  .row > label{flex:1 1 0;min-width:0}
+  .row input{width:100%}
+  .row > button{flex:1 1 100%;padding-block:12px}
+  .race-fields{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px}
+  .race-fields > label:first-child{grid-column:1/-1}
+  .race-fields input,.race-fields select{width:100%}
+  .bet-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .bet-actions label{grid-column:1/-1}
+  .bet-actions input{width:100%}
+  .bet-actions button{padding:12px 8px}
+  .hist-head .row{width:100%}
+  .stat{padding:10px}
+  .stat b{font-size:16px}
+  th,td{padding:6px 8px;font-size:13px}
+}
 </style>
 
 <div class="wrap">
@@ -132,8 +152,8 @@ td.jp{font-family:var(--font-body)}
   <section class="panel" aria-labelledby="setup-h">
     <h2 id="setup-h">軍資金の設定</h2>
     <div class="row" style="margin-top:12px">
-      <label for="capital">軍資金（円）<input id="capital" type="number" min="9100" step="1000" value="100000"></label>
-      <label for="targetRate">目標回収率（%）<input id="targetRate" type="number" min="101" step="1" value="110"></label>
+      <label for="capital">軍資金（円）<input id="capital" type="number" inputmode="numeric" min="9100" step="1000" value="100000"></label>
+      <label for="targetRate">目標回収率（%）<input id="targetRate" type="number" inputmode="numeric" min="101" step="1" value="110"></label>
       <button class="primary" id="startBtn">この金額で開始</button>
     </div>
     <p class="hint" id="setupHint"></p>
@@ -153,7 +173,7 @@ td.jp{font-family:var(--font-body)}
       <label for="raceNo">レース<select id="raceNo"></select></label>
     </div>
     <div class="bet-actions" id="betActions">
-      <label for="payout">払戻金額（円）<input id="payout" type="number" min="0" step="10" placeholder="的中時に入力"></label>
+      <label for="payout">払戻金額（円）<input id="payout" type="number" inputmode="numeric" min="0" step="10" placeholder="的中時に入力"></label>
       <button class="hit" id="hitBtn">的中</button>
       <button id="missBtn">不的中</button>
       <button id="undoBtn">1つ戻す</button>
@@ -606,7 +626,7 @@ td.jp{font-family:var(--font-body)}
   let tickets = [4.5, 6.2, 8.0];
   function renderTickets(){
     $("oddsGrid").innerHTML = tickets.map((v, i) =>
-      '<label for="t' + i + '">買い目' + (i + 1) + '（倍）<input id="t' + i + '" type="number" min="1" step="0.1" value="' + v + '"></label>').join("");
+      '<label for="t' + i + '">買い目' + (i + 1) + '（倍）<input id="t' + i + '" type="number" inputmode="decimal" min="1" step="0.1" value="' + v + '"></label>').join("");
     tickets.forEach((_, i) => $("t" + i).addEventListener("input", e => { tickets[i] = parseFloat(e.target.value); renderCalc(); }));
   }
   function renderCalc(){
