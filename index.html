@@ -227,7 +227,8 @@ td.jp{font-family:var(--font-body)}
     <div class="armies" id="armies"></div>
   </section>
 
-  <section class="panel">
+  <!-- 合成オッズ計算と買い目配分：今は表示しない（hidden を外せば戻る。計算のコードは残してある） -->
+  <section class="panel" id="calcPanel" hidden>
     <details id="calc">
       <summary>合成オッズ計算と買い目配分</summary>
       <p class="hint">買い目ごとのオッズを入れると、合成オッズと「どれが当たっても払戻がそろう」配分を次の投票額で計算します（100円単位）。</p>
