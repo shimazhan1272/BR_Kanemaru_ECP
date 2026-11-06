@@ -195,21 +195,32 @@
     ok(mig.legacy === true && mig.armies.every(a => a.ratio.join(":") === "1:3:9"), "migrate old saved state");
     L.push("default 100,000 本隊: new " + T.ladder(61000, [1, 3, 9]).join("/") + " vs previous " + T.legacyLadder(61000, [1, 3, 9]).join("/"));
 
-    // ---- 7. 画面：比率の入力と開始 ----
-    T.state = T.newState(100000, 110, DEF); T.setUndo([]); T.render();
-    ok($("ratio0").value === "1:3:9" && $("ratio2").value === "1:3:9", "ratio inputs show current ratios");
+    // ---- 7. 画面：段比率の欄（欄:欄:欄）と開始 ----
+    const boxes = i => [0, 1, 2].map(k => $("ratio" + i + "_" + k));
+    const getR = i => boxes(i).map(b => b.value).join(":");
+    const setR = (i, vals) => { boxes(i).forEach((b, k) => { b.value = vals[k] == null ? "" : vals[k]; }); boxes(i)[0].dispatchEvent(new Event("input")); };
     const setV = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); };
-    setV("ratio0", "4:9"); setV("capital", "25000");
+    T.state = T.newState(100000, 110, DEF); T.setUndo([]); T.render();
+    ok(getR(0) === "1:3:9" && getR(2) === "1:3:9", "ratio boxes show current ratios: " + getR(0));
+    setR(0, [4, 9, ""]); setV("capital", "25000");
+    ok(boxes(0).every(b => b.getAttribute("aria-invalid") === "false"), "4:9 with empty 3rd box is valid");
     L.push("hint (歩兵 4:9, 25,000): " + $("capHint").innerText.replace(/\s+/g, " ") + " | " + $("ratioHint").textContent);
     $("startBtn").click();
     const st = T.state;
     ok(st.capital === 25000 && st.armies[0].ratio.join(":") === "4:9" && st.armies[0].ladder.length === 2 && !st.legacy, "start with 4:9");
     ok(JSON.stringify(st.armies[0].ladder) === JSON.stringify(refLadder(st.armies[0].alloc, [4, 9])), "4:9 ladder");
     ok(document.querySelectorAll("#armies .army")[0].querySelectorAll(".step").length === 2, "歩兵 shows 2 steps");
+    ok(getR(0) === "4:9:", "after start the boxes show 4:9 and an empty 3rd box: " + getR(0));
     L.push("after start: 歩兵 " + st.armies[0].ladder.join("/") + " ・ " + $("ratioSummary").textContent);
-    setV("ratio1", "1:3:9:27"); $("startBtn").click();
-    ok(!$("setupErr").hidden && T.state === st, "invalid ratio must not start");
+    // 読めない入力：途中が空欄、0、小数、1つだけ
+    for (const bad of [[1, "", 9], [0, 3, 9], [1.5, 3, ""], [4, "", ""]]){
+      setR(1, bad); $("startBtn").click();
+      ok(!$("setupErr").hidden && T.state === st && boxes(1).every(b => b.getAttribute("aria-invalid") === "true"), "invalid ratio " + JSON.stringify(bad) + " must not start");
+    }
     L.push("invalid ratio error: " + $("setupErr").textContent);
+    // 初期値に戻す：欄だけ戻り、開始はしない
+    $("ratioReset").click();
+    ok([0, 1, 2].every(i => getR(i) === "1:3:9") && T.state === st && st.armies[0].ratio.join(":") === "4:9", "reset button only resets the boxes");
   } catch (e){ fails.push("EXCEPTION " + e + "\n" + (e.stack || "")); }
   report();
 })();

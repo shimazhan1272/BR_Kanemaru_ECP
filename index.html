@@ -45,8 +45,12 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:500}
 input[type=number],input[type=date],select{font-family:var(--font-num);font-size:17px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:150px;max-width:100%}
 select{font-family:var(--font-body);width:auto;min-width:96px}
 input[type=date]{width:auto}
-input[type=text].ratio{font-family:var(--font-num);font-size:17px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);width:120px;max-width:100%}
-input[type=text].ratio[aria-invalid=true]{border-color:var(--hit)}
+/* 段比率：部隊ごとに「欄:欄:欄」 */
+.ratio-field{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:500}
+.ratio-boxes{display:flex;align-items:center;gap:4px;color:var(--muted);font-family:var(--font-num);font-weight:700}
+.ratio-boxes input[type=number]{width:52px;padding:8px 4px;text-align:center;-moz-appearance:textfield;appearance:textfield}
+.ratio-boxes input::-webkit-outer-spin-button,.ratio-boxes input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.ratio-boxes input[aria-invalid=true]{border-color:var(--hit)}
 input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .race-fields{display:flex;flex-wrap:wrap;gap:10px}.hint.warn{color:var(--warn);font-weight:700}
 .hist-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
@@ -139,7 +143,9 @@ td.jp{font-family:var(--font-body)}
   body{padding-block:16px 40px}
   .panel{padding:14px}
   .row > label{flex:1 1 0;min-width:0}
-  .row input,.row input[type=text].ratio{width:100%}
+  .row input{width:100%}
+  .row > .ratio-field{flex:1 1 100%;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .row .ratio-boxes input[type=number]{width:60px}
   .row > button{flex:1 1 100%;padding-block:12px}
   .row > button.sub{flex:1 1 100%;padding-block:8px;font-size:14px}
   .race-fields{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px}
@@ -169,9 +175,7 @@ td.jp{font-family:var(--font-body)}
       <label for="targetRate">目標回収率（%）<input id="targetRate" type="number" inputmode="numeric" min="101" step="1" value="110"></label>
     </div>
     <div class="row" style="margin-top:12px">
-      <label for="ratio0"><span><span class="c5">歩兵</span>の段比率</span><input id="ratio0" class="ratio" type="text" autocomplete="off" spellcheck="false"></label>
-      <label for="ratio1"><span><span class="c4">騎馬隊</span>の段比率</span><input id="ratio1" class="ratio" type="text" autocomplete="off" spellcheck="false"></label>
-      <label for="ratio2"><span><span class="c3">本隊</span>の段比率</span><input id="ratio2" class="ratio" type="text" autocomplete="off" spellcheck="false"></label>
+      <!-- 部隊ごとの段比率の欄はスクリプトで作る（段の数の上限だけ欄を並べる） -->
       <button type="button" class="sub" id="ratioReset">初期値に戻す</button>
     </div>
     <div class="row" style="margin-top:12px">
@@ -694,16 +698,29 @@ td.jp{font-family:var(--font-body)}
   const capInput = () => floorUnit(parseFloat($("capital").value) || 0);
   // 入力した軍資金に端数が出るとき、近い「端数が出ない金額」を案内する
   // 段比率の入力欄の値（読めない欄があれば null）。印を付けるだけで、反映は「この金額で開始」のとき
+  // 段比率の欄：部隊ごとに段の数の上限だけ欄を並べ、下限より後ろの欄は空欄にできる（空欄なら段が少なくなる）
+  const MAX_STEPS = Math.max(...STEP_COUNTS), MIN_STEPS = Math.min(...STEP_COUNTS);
+  const ratioBoxes = i => Array.from({length: MAX_STEPS}, (_, k) => $("ratio" + i + "_" + k));
+  // 左から詰めて入った数字を比率として読む（途中に空欄があれば null）
+  function readRatioField(i){
+    const vals = ratioBoxes(i).map(b => b.value.trim());
+    const n = vals.findIndex(v => v === "");
+    const filled = n < 0 ? vals : vals.slice(0, n);
+    if (vals.slice(filled.length).some(v => v !== "")) return null;
+    return parseRatio(filled.join(":"));
+  }
+  function writeRatioField(i, r){ ratioBoxes(i).forEach((b, k) => { b.value = r[k] == null ? "" : r[k]; }); }
+  const RATIO_MSG = "段比率は1以上の整数を左から" + STEP_COUNTS.join("つか") + "つ入れてください（" + MIN_STEPS + "段にするときは" + (MIN_STEPS + 1) + "つ目" + (MAX_STEPS - MIN_STEPS > 1 ? "から" : "") + "を空欄に）。";
   function ratioInputs(){
-    const rs = ARMY_DEF.map((_, i) => parseRatio($("ratio" + i).value));
-    rs.forEach((r, i) => $("ratio" + i).setAttribute("aria-invalid", r ? "false" : "true"));
+    const rs = ARMY_DEF.map((_, i) => readRatioField(i));
+    rs.forEach((r, i) => ratioBoxes(i).forEach(b => b.setAttribute("aria-invalid", r ? "false" : "true")));
     return rs.every(Boolean) ? rs : null;
   }
   // 端数の案内・最低額は、入力中の段比率（読めなければ今の設定）で計算する
   const pendingRatios = () => ratioInputs() || ratiosOf(state);
   function renderRatioHint(){
     const ok = ratioInputs(), rs = ok || ratiosOf(state), u = unitsFor(rs);
-    $("ratioHint").textContent = (ok ? "" : "段比率は「4:9」「1:3:9」のように、1以上の整数を" + STEP_COUNTS.join("つか") + "つ入力してください。") +
+    $("ratioHint").textContent = (ok ? "" : RATIO_MSG) +
       "この比率では、歩兵の単位 " + yen(u.inf) + "・最低の軍資金 " + yen(u.min) + "。比率は「この金額で開始」で反映されます。";
     $("ratioHint").className = ok ? "hint" : "err";
     $("capital").min = u.min;
@@ -810,7 +827,7 @@ td.jp{font-family:var(--font-body)}
           '</td><td class="jp" style="text-align:left">' + (r.note || "") + '</td></tr>').reverse().join("") + '</tbody>';
 
     $("capital").value = state.capital;
-    state.armies.forEach((a, i) => { $("ratio" + i).value = ratioText(a.ratio); });
+    state.armies.forEach((a, i) => writeRatioField(i, a.ratio));
     const rs = ratiosOf(state);
     $("ratioSummary").textContent = rs.every(r => sameRatio(r, rs[0])) ? "各部隊を" + ratioText(rs[0]) + "に分割" :
       state.armies.map(a => a.name + " " + ratioText(a.ratio)).join("・");
@@ -869,11 +886,21 @@ td.jp{font-family:var(--font-body)}
   // 画面の説明文に比率・単位・目安のオッズを入れる
   const TEXT = {army: ARMY_RATIO.join(":"), step: ratioText(DEFAULT_STEP_RATIO), counts: STEP_COUNTS.join("段か") + "段", unit: UNIT.toLocaleString("ja-JP"), ok: String(OK_ODDS)};
   document.querySelectorAll("[data-k]").forEach(el => { el.textContent = TEXT[el.dataset.k]; });
-  ARMY_DEF.forEach((_, i) => $("ratio" + i).addEventListener("input", renderCapHint));
+  // 段比率の欄を作る：「歩兵の段比率 [ ]:[ ]:[ ]」
+  ARMY_DEF.forEach((d, i) => {
+    const field = document.createElement("div");
+    field.className = "ratio-field"; field.setAttribute("role", "group"); field.setAttribute("aria-labelledby", "ratioL" + i);
+    field.innerHTML = '<span id="ratioL' + i + '"><span class="c' + d.lane + '">' + d.name + '</span>の段比率</span><div class="ratio-boxes">' +
+      Array.from({length: MAX_STEPS}, (_, k) => (k ? '<span aria-hidden="true">:</span>' : '') +
+        '<input id="ratio' + i + '_' + k + '" type="number" inputmode="numeric" min="1" step="1" aria-label="' + d.name + ' ' + (k + 1) + '段目の比率' +
+        (k >= MIN_STEPS ? '（' + k + '段にするときは空欄）' : '') + '"' + (k >= MIN_STEPS ? ' placeholder="—"' : '') + '>').join("") + '</div>';
+    $("ratioReset").before(field);
+    ratioBoxes(i).forEach(b => b.addEventListener("input", renderCapHint));
+  });
   // 段比率の欄を初期値に戻すだけで、開始はしない（反映は「この金額で開始」）
   $("ratioReset").textContent = "初期値（" + ratioText(DEFAULT_STEP_RATIO) + "）に戻す";
   $("ratioReset").addEventListener("click", () => {
-    ARMY_DEF.forEach((_, i) => { $("ratio" + i).value = ratioText(DEFAULT_STEP_RATIO); });
+    ARMY_DEF.forEach((_, i) => writeRatioField(i, DEFAULT_STEP_RATIO));
     renderCapHint();
   });
   $("addTicket").addEventListener("click", () => { if (tickets.length < 20){ tickets.push(5.0); renderTickets(); renderCalc(); } });
@@ -929,7 +956,7 @@ td.jp{font-family:var(--font-body)}
     const rate = parseFloat($("targetRate").value);
     const err = $("setupErr");
     const ratios = ratioInputs();
-    if (!ratios){ err.textContent = "段比率は「4:9」「1:3:9」のように、1以上の整数を" + STEP_COUNTS.join("つか") + "つ入力してください。"; err.hidden = false; return; }
+    if (!ratios){ err.textContent = RATIO_MSG; err.hidden = false; return; }
     if (!allocate(cap, ratios)){ err.textContent = "軍資金は" + yen(unitsFor(ratios).min) + "以上にしてください（この段比率で、どの部隊の段も" + yen(UNIT) + "単位に分かれる最低額です）。"; err.hidden = false; return; }
     if (!(rate > 100)){ err.textContent = "目標回収率は100%より大きい値（例：105、110）で入力してください。"; err.hidden = false; return; }
     err.hidden = true;
