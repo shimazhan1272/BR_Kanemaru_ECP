@@ -200,6 +200,7 @@
     const getR = i => boxes(i).map(b => b.value).join(":");
     const setR = (i, vals) => { boxes(i).forEach((b, k) => { b.value = vals[k] == null ? "" : vals[k]; }); boxes(i)[0].dispatchEvent(new Event("input")); };
     const setV = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); };
+    ok($("ratioPanel").open === false, "ratio settings must start collapsed");
     T.state = T.newState(100000, 110, DEF); T.setUndo([]); T.render();
     ok(getR(0) === "1:3:9" && getR(2) === "1:3:9", "ratio boxes show current ratios: " + getR(0));
     setR(0, [4, 9, ""]); setV("capital", "25000");
@@ -217,10 +218,16 @@
       setR(1, bad); $("startBtn").click();
       ok(!$("setupErr").hidden && T.state === st && boxes(1).every(b => b.getAttribute("aria-invalid") === "true"), "invalid ratio " + JSON.stringify(bad) + " must not start");
     }
-    L.push("invalid ratio error: " + $("setupErr").textContent);
+    ok($("ratioPanel").open === true && !$("ratioErr").hidden, "invalid ratio opens the ratio panel and shows the message there");
+    L.push("invalid ratio error: " + $("setupErr").textContent + " / " + $("ratioErr").textContent);
     // 初期値に戻す：欄だけ戻り、開始はしない
     $("ratioReset").click();
     ok([0, 1, 2].every(i => getR(i) === "1:3:9") && T.state === st && st.armies[0].ratio.join(":") === "4:9", "reset button only resets the boxes");
+    // 段比率の設定の中の「この金額で開始」でも開始できる
+    // 本隊 2:5 は最低の軍資金が上がるので、十分な軍資金で開始する
+    setR(2, [2, 5, ""]); setV("capital", String(T.unitsFor([[1, 3, 9], [1, 3, 9], [2, 5]]).min * 2)); $("ratioStart").click();
+    ok(T.state !== st && T.state.armies[2].ratio.join(":") === "2:5" && $("ratioErr").hidden, "start from the ratio panel");
+    L.push("ratio panel start: " + $("ratioNow").textContent);
   } catch (e){ fails.push("EXCEPTION " + e + "\n" + (e.stack || "")); }
   report();
 })();

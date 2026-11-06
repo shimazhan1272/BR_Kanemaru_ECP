@@ -124,6 +124,7 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 /* 合成オッズ計算 */
 details summary{cursor:pointer;font-weight:700}
+.summary-note{font-weight:500;font-size:13px;color:var(--muted)}
 .odds-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-top:12px}
 .odds-grid input{width:100%}
 .tbl-wrap{overflow-x:auto;margin-top:12px}
@@ -175,13 +176,8 @@ td.jp{font-family:var(--font-body)}
       <label for="targetRate">目標回収率（%）<input id="targetRate" type="number" inputmode="numeric" min="101" step="1" value="110"></label>
     </div>
     <div class="row" style="margin-top:12px">
-      <!-- 部隊ごとの段比率の欄はスクリプトで作る（段の数の上限だけ欄を並べる） -->
-      <button type="button" class="sub" id="ratioReset">初期値に戻す</button>
-    </div>
-    <div class="row" style="margin-top:12px">
       <button class="primary" id="startBtn">この金額で開始</button>
     </div>
-    <p class="hint" id="ratioHint"></p>
     <div class="cap-hint" id="capHint" hidden>
       <p id="capFrac"></p>
       <div class="cap-pick"><span>端数が出ない金額：</span><span id="capLowWrap"><button type="button" id="capLow"></button>（下）</span><span id="capSep">／</span><span id="capUpWrap"><button type="button" id="capUp"></button>（上）</span></div>
@@ -262,6 +258,23 @@ td.jp{font-family:var(--font-body)}
     </div>
     <p class="hint" id="csvMsg" hidden></p>
     <div class="tbl-wrap"><table id="hist"></table></div>
+  </section>
+
+  <!-- 段比率の設定：ふだんは折りたたんでおく -->
+  <section class="panel">
+    <details id="ratioPanel">
+      <summary>段比率の設定 <span class="summary-note" id="ratioNow"></span></summary>
+      <p class="hint">部隊ごとに段の比率を「欄 : 欄 : 欄」で入れます。2段にするときは3つ目を空欄にします。反映は「この金額で開始」を押したときです（軍資金・目標回収率は上の「軍資金の設定」の値を使います）。</p>
+      <div class="row" style="margin-top:12px">
+        <!-- 部隊ごとの段比率の欄はスクリプトで作る（段の数の上限だけ欄を並べる） -->
+        <button type="button" class="sub" id="ratioReset">初期値に戻す</button>
+      </div>
+      <p class="hint" id="ratioHint"></p>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="ratioStart">この金額で開始</button>
+      </div>
+      <p class="err" id="ratioErr" hidden></p>
+    </details>
   </section>
 
   <section class="panel" aria-labelledby="rule-h">
@@ -832,6 +845,7 @@ td.jp{font-family:var(--font-body)}
     const rs = ratiosOf(state);
     $("ratioSummary").textContent = rs.every(r => sameRatio(r, rs[0])) ? "各部隊を" + ratioText(rs[0]) + "に分割" :
       state.armies.map(a => a.name + " " + ratioText(a.ratio)).join("・");
+    $("ratioNow").textContent = "（今の設定：" + (rs.every(r => sameRatio(r, rs[0])) ? "全部隊 " + ratioText(rs[0]) : state.armies.map(a => a.name + " " + ratioText(a.ratio)).join("・")) + "）";
     renderCapHint();
     $("targetRate").value = state.targetRate;
     $("setupHint").textContent = "目標 " + yen(state.capital + state.target) + "（回収率" + state.targetRate + "%・利益 " + yen(state.target) + "）／ 歩兵 " + yen(state.armies[0].alloc) +
@@ -952,18 +966,27 @@ td.jp{font-family:var(--font-body)}
     setTarget(rate);
     save(); render();
   });
-  $("startBtn").addEventListener("click", () => {
+  // 「この金額で開始」：上（軍資金の設定）と下（段比率の設定）のどちらのボタンでも同じ。エラーは押したほうの近くに出す
+  function startNew(err){
+    $("setupErr").hidden = true; $("ratioErr").hidden = true;
+    const fail = msg => { err.textContent = msg; err.hidden = false; };
     const cap = capInput();
     const rate = parseFloat($("targetRate").value);
-    const err = $("setupErr");
     const ratios = ratioInputs();
-    if (!ratios){ err.textContent = RATIO_MSG; err.hidden = false; return; }
-    if (!allocate(cap, ratios)){ err.textContent = "軍資金は" + yen(unitsFor(ratios).min) + "以上にしてください（この段比率で、どの部隊の段も" + yen(UNIT) + "単位に分かれる最低額です）。"; err.hidden = false; return; }
-    if (!(rate > 100)){ err.textContent = "目標回収率は100%より大きい値（例：105、110）で入力してください。"; err.hidden = false; return; }
-    err.hidden = true;
+    if (!ratios){
+      // 段比率の欄が読めないときは、折りたたみを開いて知らせる
+      $("ratioPanel").open = true;
+      $("ratioErr").textContent = RATIO_MSG; $("ratioErr").hidden = false;
+      if (err !== $("ratioErr")) fail("段比率の設定に読めない値があります（下の「段比率の設定」を確かめてください）。");
+      return;
+    }
+    if (!allocate(cap, ratios)) return fail("軍資金は" + yen(unitsFor(ratios).min) + "以上にしてください（この段比率で、どの部隊の段も" + yen(UNIT) + "単位に分かれる最低額です）。");
+    if (!(rate > 100)) return fail("目標回収率は100%より大きい値（例：105、110）で入力してください。");
     state = newState(cap, rate, ratios); undoStack = [];
     save(); render();
-  });
+  }
+  $("startBtn").addEventListener("click", () => startNew($("setupErr")));
+  $("ratioStart").addEventListener("click", () => startNew($("ratioErr")));
 
   load();
   // 開いたときは今日の日付にする（日付が変わっていたらレースも1Rに戻す）
