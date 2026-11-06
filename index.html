@@ -45,10 +45,7 @@ input[type=number],input[type=date],select{font-family:var(--font-num);font-size
 select{font-family:var(--font-body);width:auto;min-width:96px}
 input[type=date]{width:auto}
 input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.race-fields{display:flex;flex-wrap:wrap;gap:10px}
-.date-group{display:flex;align-items:flex-end;gap:6px}
-.date-group button{padding-block:10px}
-.hint.warn{color:var(--warn);font-weight:700}
+.race-fields{display:flex;flex-wrap:wrap;gap:10px}.hint.warn{color:var(--warn);font-weight:700}
 .hist-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
 .confirm{margin-top:12px;padding:12px 14px;border:1px solid var(--warn);border-radius:8px;display:grid;gap:10px}
 .confirm p{margin:0;font-weight:500}
@@ -151,10 +148,7 @@ td.jp{font-family:var(--font-body)}
     <div class="bet-amt" id="betAmt">¥0</div>
     <div id="banner"></div>
     <div class="race-fields">
-      <div class="date-group">
-        <label for="raceDate">日付<input id="raceDate" type="date"></label>
-        <button type="button" id="todayBtn">本日</button>
-      </div>
+      <label for="raceDate">日付<input id="raceDate" type="date"></label>
       <label for="venue">レース場<select id="venue"></select></label>
       <label for="raceNo">レース<select id="raceNo"></select></label>
     </div>
@@ -675,7 +669,6 @@ td.jp{font-family:var(--font-body)}
     save(); render();
     csvMsg("履歴をリセットしました。", false);
   });
-  $("todayBtn").addEventListener("click", () => { readForm(); form.date = today(); writeForm(); save(); });
   ["raceDate", "venue", "raceNo"].forEach(id => $(id).addEventListener("change", () => { readForm(); save(); }));
   $("venue").innerHTML = VENUES.map(venueLabel).map(v => '<option value="' + v + '">' + v + '</option>').join("");
   $("raceNo").innerHTML = Array.from({length: 12}, (_, i) => '<option value="' + (i + 1) + '">' + (i + 1) + 'R</option>').join("");
