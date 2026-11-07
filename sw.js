@@ -1,6 +1,6 @@
 // 金丸法×ECP: オフラインでも開けるようにするサービスワーカー
 // ページはネット優先（つながれば常に最新版）、つながらないときは保存した版を使う
-const CACHE = "kanemaru-ecp-v7";
+const CACHE = "kanemaru-ecp-v8";
 const FILES = ["./", "index.html", "manifest.webmanifest", "favicon.svg", "favicon-32.png",
   "apple-touch-icon.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png"];
 

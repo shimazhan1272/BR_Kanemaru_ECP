@@ -111,6 +111,11 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .step.now small{color:inherit;opacity:.75}
 .step.gone b{text-decoration:line-through;color:var(--dead)}
 .revive{font-size:12px;color:var(--warn)}
+.step .custom{font-size:10px;color:var(--warn);font-weight:700}
+.step input[type=number]{width:100%;font-size:14px;padding:4px 2px;text-align:center;margin-top:2px}
+.army-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.army-tools button{font-size:13px;padding:6px 10px}
+.army-tools .err,.army-tools .hint{margin:0;flex-basis:100%}
 .step .need{font-family:var(--font-num);font-size:11px;color:var(--muted);margin-top:2px}
 .step.now .need{color:inherit;opacity:.85}
 .need-odds{margin:-4px 0 0;font-weight:700;font-size:15px}
@@ -283,7 +288,8 @@ td.jp{font-family:var(--font-body)}
       <li>軍資金を約<span data-k="army">1:2:4</span>で歩兵・騎馬隊・本隊に分けます（端数は本隊へ）。</li>
       <li>各部隊をさらに段の比率（初期設定は<span data-k="step">1:3:9</span>。部隊ごとに<span data-k="counts">2段か3段</span>で変更できます）に分け、1段目から順に張ります。外れたら次の段へ進み、最後の段まで外れたら全滅です。</li>
       <li>歩兵が全滅したら騎馬隊、騎馬隊も全滅したら本隊が出撃します。</li>
-      <li>当たったら、その部隊は1段目に戻り、増えた資金でその部隊の段の比率に分け直します。</li>
+      <li>当たったら、その部隊は1段目に戻り、残りの資金でその部隊の段の比率に分け直します。最初の配分に足りないときは、配分（取り戻す目標）はそのままにして、今ある資金を比率に近い割合で分けます。</li>
+      <li>各部隊の「賭け金を変更」で、まだ張っていない段の賭け金を手で変えられます（次に当たると、比率で分け直した金額に戻ります）。</li>
       <li>本隊の利益（最初の配分を超えた分）が騎馬隊の満額に届いたら騎馬隊へ、騎馬隊の利益が歩兵の満額に届いたら歩兵へ移して復活させ、次からは復活した部隊で張ります。</li>
       <li>配分・各段の投票額・移す金額は<span data-k="unit">100</span>円単位です。払戻の<span data-k="unit">100</span>円未満の端数は張らずにその部隊に残します。</li>
       <li>合成オッズは<span data-k="ok">1.5</span>倍（払戻が投票額の<span data-k="ok">1.5</span>倍）あればOK。各段で必要な合成オッズは「次の投票」と「三部隊の状況」に表示します。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。目標回収率は途中で変えても、履歴を消さずにその場で反映されます。</li>
@@ -340,6 +346,31 @@ td.jp{font-family:var(--font-body)}
     return [...steps, alloc - sumOf(steps)];
   }
   const ladderOf = (alloc, ratio, legacy) => (legacy ? legacyLadder : ladder)(alloc, ratio);
+  // 残り資金を段の比率に「近い割合」で分ける（最初の配分に足りないときに使う）
+  //   UNIT 単位の個数を最大剰余法で配る：各段の取り分（個数×比率÷合計）の整数部を先に配り、余りは小数部の大きい段から1つずつ
+  //   どの段も最低 UNIT にする（張れる個数が段の数より少ないときは、前の段から UNIT ずつ）
+  function nearLadder(amount, ratio){
+    const units = Math.floor(amount / UNIT), n = ratio.length, s = sumOf(ratio);
+    if (units < n) return ratio.map((_, k) => k < units ? UNIT : 0);
+    const q = ratio.map(r => units * r / s);
+    const a = q.map(x => Math.max(1, Math.floor(x)));
+    let left = units - sumOf(a);
+    // 最低1個にしたぶん配りすぎたら、取り分を一番上回っている段から減らす
+    while (left < 0){
+      let k = -1;
+      a.forEach((v, i) => { if (v > 1 && (k < 0 || v - q[i] > a[k] - q[k])) k = i; });
+      a[k]--; left++;
+    }
+    // 余りは、取り分に一番足りない段（同じなら後ろの段）から1つずつ
+    while (left > 0){
+      let k = 0;
+      a.forEach((v, i) => { if (q[i] - v >= q[k] - a[k]) k = i; });
+      a[k]++; left--;
+    }
+    return a.map(v => v * UNIT);
+  }
+  // 段の金額を決める。ruleLadder はルールで決めた金額（手で変えた金額を「比率どおりに戻す」ときに使う）
+  function setLadder(a, lad){ a.ladder = lad.slice(); a.ruleLadder = lad.slice(); }
   // 段の比率で、どの段も UNIT 単位ちょうどに分かれる最小の配分
   function stepUnit(ratio){
     const s = sumOf(ratio), g = ratio.reduce(gcd);
@@ -392,8 +423,10 @@ td.jp{font-family:var(--font-body)}
     const st = {
       capital, targetRate, target: Math.round(capital * (targetRate - 100) / 100),
       history: [],
-      armies: allocs.map((alloc, i) => ({...ARMY_DEF[i], ratio: ratios[i].slice(), base: alloc, alloc,
-        ladder: ladderOf(alloc, ratios[i], legacy), funds: alloc, step: 0}))
+      armies: allocs.map((alloc, i) => {
+        const lad = ladderOf(alloc, ratios[i], legacy);
+        return {...ARMY_DEF[i], ratio: ratios[i].slice(), base: alloc, alloc, ladder: lad, ruleLadder: lad.slice(), funds: alloc, step: 0};
+      })
     };
     if (legacy) st.legacy = true;
     return st;
@@ -404,6 +437,7 @@ td.jp{font-family:var(--font-body)}
       st.armies.forEach(a => { if (!a.ratio) a.ratio = DEFAULT_STEP_RATIO.slice(); });
       st.legacy = true;
     }
+    if (st && st.armies) st.armies.forEach(a => { if (!a.ruleLadder) a.ruleLadder = a.ladder.slice(); });
     return st;
   }
   const ratiosOf = st => st.armies.map(a => a.ratio);
@@ -485,6 +519,25 @@ td.jp{font-family:var(--font-body)}
     return {i, step: a.step, amount: betAmount(a, a.step, a.funds)};
   }
 
+  // 賭け金の変更：編集中の部隊（null なら編集していない）と、入力中の値
+  let editArmy = null, draft = [], editErr = "";
+  function closeEdit(){ editArmy = null; draft = []; editErr = ""; }
+  function saveEdit(){
+    const a = state.armies[editArmy];
+    const vals = {};
+    for (let k = a.step; k < a.ladder.length; k++){
+      const raw = draft[k] == null ? a.ladder[k] : draft[k];
+      const v = floorUnit(parseFloat(raw));
+      if (!(v >= UNIT)){ editErr = (k + 1) + "段目は" + yen(UNIT) + "以上・" + yen(UNIT) + "単位で入れてください。"; render(); return; }
+      vals[k] = v;
+    }
+    Object.keys(vals).forEach(k => { a.ladder[k] = vals[k]; });
+    // 最後のレースの記録にも今の段の金額を入れておく（CSVで再開したときに再現するため）
+    const last = state.history[state.history.length - 1];
+    if (last) last.ladders = state.armies.map(x => x.ladder.slice());
+    closeEdit(); save(); render();
+  }
+
   function snapshot(){ undoStack.push(JSON.stringify(state)); if (undoStack.length > 200) undoStack.shift(); }
 
   function settle(hit){
@@ -494,6 +547,7 @@ td.jp{font-family:var(--font-body)}
     if (hit && !(payout > 0)) { $("payoutErr").hidden = false; $("payout").focus(); return; }
     $("payoutErr").hidden = true;
     readForm();
+    closeEdit();
     apply(bet, hit, payout, {date: form.date, venue: form.venue, race: form.race});
     // 次のレースへ進めて払戻欄を空にする
     if (form.race < 12) form.race += 1;
@@ -525,34 +579,45 @@ td.jp{font-family:var(--font-body)}
         // 利益が足りなければ、その下の部隊も復活させない（騎馬隊→歩兵の順を守る）
         if (need > a.funds - base) break;
         a.funds -= need; b.funds += need; b.step = 0;
+        // 復活した部隊は配分どおりの段に戻す（手で変えた金額や、足りないときの分け方はやめる）
+        setLadder(b, ladderOf(b.alloc, b.ratio, state.legacy));
         notes.push(b.name + "へ" + yen(need) + "移して復活");
       }
-      // 残りは当たった部隊で100円単位にして1:3:9に分け直す（端数は張らずに残す。最初の配分を下回ったときは分け直さない）
-      if (a.funds < base) notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足");
-      else {
+      // 残りは当たった部隊で UNIT 単位にして段の比率に分け直す（UNIT 未満の端数は張らずに残す）
+      if (a.funds < base){
+        // 最初の配分に足りないとき：配分（取り戻す目標）はそのままにして、今ある資金を比率に近い割合で分ける
+        const lad = nearLadder(a.funds, a.ratio);
+        setLadder(a, lad);
+        notes.push(a.name + "は" + yen(a.alloc - a.funds) + "不足（" + yen(sumOf(lad)) + "を" + lad.map(yen).join("・") + "に分け直し）");
+      } else {
         const alloc = floorUnit(a.funds);
-        if (alloc !== a.alloc){
-          a.alloc = alloc; a.ladder = ladderOf(alloc, a.ratio, state.legacy);
-          notes.push(a.name + "を" + yen(alloc) + "で分け直し");
-        }
+        const lad = ladderOf(alloc, a.ratio, state.legacy);
+        const changed = alloc !== a.alloc;
+        a.alloc = alloc; setLadder(a, lad);
+        if (changed) notes.push(a.name + "を" + yen(alloc) + "で分け直し");
       }
       rec.note = notes.join("・");
     }
     rec.pl = profit();
+    // このレースのあとの各部隊の段の金額（CSVで再開したときに手で変えた金額も再現するため）
+    rec.ladders = state.armies.map(a => a.ladder.slice());
     state.history.push(rec);
   }
 
   // ---- CSV 保存・読込 ----
   // 段の比率の列（部隊ごと）。Excelで時刻に変換されないよう全角の「：」で区切って書く
   const RATIO_COLS = ARMY_DEF.map(d => d.name + "の段比率");
-  const COLS = ["番号","日付","レース場","レース","部隊","段","投票額","結果","払戻","損益","メモ","軍資金","目標回収率%", ...RATIO_COLS];
+  // 各レースのあとの段の金額の列（部隊ごと）。手で変えた金額も含めて再開できるようにする
+  const LADDER_COLS = ARMY_DEF.map(d => d.name + "の段金額");
+  const COLS = ["番号","日付","レース場","レース","部隊","段","投票額","結果","払戻","損益","メモ","軍資金","目標回収率%", ...RATIO_COLS, ...LADDER_COLS];
   const csvCell = v => { const s = v == null ? "" : String(v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   function toCSV(){
     const lines = [COLS.join(",")];
     state.history.forEach((r, n) => lines.push([n + 1, r.date || "", venueLabel(r.venue), r.race || "", r.army, r.step, r.bet,
       r.hit ? "的中" : "不的中", r.hit ? r.payout : 0, r.pl, r.note || "", state.capital, r.targetRate || state.targetRate,
       // 以前の段の計算方法で続けているデータは比率の欄を空にする（読み込むと以前の方法で再現される）
-      ...state.armies.map(a => state.legacy ? "" : a.ratio.join("："))].map(csvCell).join(",")));
+      ...state.armies.map(a => state.legacy ? "" : a.ratio.join("：")),
+      ...state.armies.map((a, i) => (r.ladders ? r.ladders[i] : a.ladder).join("："))].map(csvCell).join(",")));
     return "﻿" + lines.join("\r\n") + "\r\n";
   }
   function stamp(){
@@ -610,14 +675,26 @@ td.jp{font-family:var(--font-body)}
     // 合わないときは、全部隊が初期値の比率なら、もう一方の方法でも試す（以前の方法で続けていたデータの再開用）
     const allDefault = ratios.every(r => sameRatio(r, DEFAULT_STEP_RATIO));
     const order = hasRatio[0] ? [false, true] : [true, false];
+    // 段金額の列があるCSVは、記録した投票額と段の金額をそのまま使う（手で変えた金額も再現する）
+    const hasLadder = LADDER_COLS.every(c => col(c) >= 0) && data.every(r => LADDER_COLS.every(c => get(r, c) !== ""));
+    if (hasLadder) return replayWith(data, cap, rate, ratios, !hasRatio[0], rateOf, get, {lenient: true, ladders: true});
+    // 段金額の列がない古いCSV：まず計算どおりの投票額で再生し、合わなければ記録した投票額を使う
+    // （足りないときの分け方が変わる前の履歴や、手で変えた投票額を読むため）
     let firstErr = null;
-    for (const legacy of allDefault ? order : [false]){
-      try { return replayWith(data, cap, rate, ratios, legacy, rateOf, get); }
-      catch(e){ if (!firstErr) firstErr = e; }
+    for (const lenient of [false, true]){
+      for (const legacy of allDefault ? order : [false]){
+        try { return replayWith(data, cap, rate, ratios, legacy, rateOf, get, {lenient, ladders: false}); }
+        catch(e){ if (!firstErr) firstErr = e; }
+      }
     }
     throw firstErr;
   }
-  function replayWith(data, cap, rate, ratios, legacy, rateOf, get){
+  // 「100：300：900」を段の金額として読む
+  function parseLadder(text, n){
+    const parts = String(text).split(/[:：]/).map(v => Number(v.trim()));
+    return parts.length === n && parts.every(v => Number.isInteger(v) && v >= 0 && v % UNIT === 0) ? parts : null;
+  }
+  function replayWith(data, cap, rate, ratios, legacy, rateOf, get, opts){
     const keep = {state, undoStack};
     try {
       state = newState(cap, rate, ratios, legacy); undoStack = [];
@@ -633,10 +710,28 @@ td.jp{font-family:var(--font-body)}
         const hit = res === "的中";
         const payout = Math.floor(num(get(r, "払戻")) || 0);
         if (hit && !(payout > 0)) throw new Error(line + "行目: 的中なのに払戻金額がありません。");
+        const a = state.armies[bet.i];
+        const armyCol = get(r, "部隊"), stepCol = parseInt(get(r, "段"), 10);
+        if (armyCol && armyCol !== a.name) throw new Error(line + "行目: 部隊「" + armyCol + "」が、この時点で張る部隊「" + a.name + "」と合いません。");
+        if (stepCol > 0 && stepCol !== bet.step + 1) throw new Error(line + "行目: " + stepCol + "段目が、この時点の段（" + (bet.step + 1) + "段目）と合いません。");
         const betCol = num(get(r, "投票額"));
-        if (betCol > 0 && betCol !== bet.amount) throw new Error(line + "行目: 投票額 " + yen(betCol) + " が計算上の投票額 " + yen(bet.amount) + " と合いません。");
+        if (betCol > 0 && betCol !== bet.amount){
+          if (!opts.lenient) throw new Error(line + "行目: 投票額 " + yen(betCol) + " が計算上の投票額 " + yen(bet.amount) + " と合いません。");
+          // 手で変えた投票額：UNIT 単位で、UNIT 以上・残り資金以下なら、その段の金額として使う
+          if (!(betCol >= UNIT && betCol % UNIT === 0 && betCol <= floorUnit(a.funds))) throw new Error(line + "行目: 投票額 " + yen(betCol) + " が張れる額ではありません（" + yen(UNIT) + "単位・残り資金 " + yen(a.funds) + " 以下）。");
+          a.ladder[bet.step] = betCol; bet.amount = betCol;
+        }
         const raceNo = parseInt(get(r, "レース"), 10);
         apply(bet, hit, payout, {date: normDate(get(r, "日付")), venue: venueLabel(get(r, "レース場")), race: raceNo >= 1 && raceNo <= 12 ? raceNo : null});
+        if (opts.ladders){
+          const lads = state.armies.map((x, i) => {
+            const l = parseLadder(get(r, LADDER_COLS[i]), x.ladder.length);
+            if (!l) throw new Error(line + "行目: 「" + LADDER_COLS[i] + "」の値「" + get(r, LADDER_COLS[i]) + "」が読み取れません。");
+            return l;
+          });
+          state.armies.forEach((x, i) => { x.ladder = lads[i]; });
+          state.history[state.history.length - 1].ladders = lads.map(l => l.slice());
+        }
       });
       return {state, undoStack, count: data.length};
     } finally {
@@ -696,6 +791,7 @@ td.jp{font-family:var(--font-body)}
     reader.readAsText(file, "utf-8");
   }
   function commitImport(){
+    closeEdit();
     if (!pendingImport) return;
     state = pendingImport.state; undoStack = pendingImport.undoStack;
     const last = state.history[state.history.length - 1];
@@ -811,21 +907,31 @@ td.jp{font-family:var(--font-body)}
     // 部隊
     const act = activeIndex();
     $("armies").innerHTML = state.armies.map((a, i) => {
+      // data-i で部隊を見分ける（賭け金の変更ボタン用）
       const dead = !alive(a);
       const on = i === act && !goal;
       const pill = dead ? '<span class="pill dead">全滅</span>' : on ? '<span class="pill on">出撃中</span>' : '<span class="pill wait">待機</span>';
       const needs = stepNeeds(a);
+      const editing = editArmy === i && !dead && !goal;
       const steps = a.ladder.map((v, k) => {
         const cls = dead || k < a.step ? "gone" : (on && k === a.step ? "now" : "");
+        if (editing && k >= a.step){
+          return '<div class="step"><small>' + (k + 1) + '段目</small><input type="number" inputmode="numeric" min="' + UNIT + '" step="' + UNIT + '" data-k="' + k + '" value="' + (draft[k] == null ? v : draft[k]) + '" aria-label="' + a.name + ' ' + (k + 1) + '段目の賭け金"></div>';
+        }
         const nd = needs[k] ? '<small class="need" title="この段で当たったときに必要な払戻 ' + yen(needs[k].pay) + '">' + needs[k].label + '倍〜</small>' : "";
-        return '<div class="step ' + cls + '"><small>' + (k + 1) + '段目</small><b>' + yen(v) + '</b>' + nd + '</div>';
+        const cu = !dead && k >= a.step && a.ruleLadder && v !== a.ruleLadder[k] ? '<small class="custom">手動</small>' : "";
+        return '<div class="step ' + cls + '"><small>' + (k + 1) + '段目</small><b>' + yen(v) + '</b>' + nd + cu + '</div>';
       }).join("");
+      const tools = dead || goal ? "" : editing
+        ? '<div class="army-tools"><button type="button" class="primary" data-act="save">保存</button><button type="button" data-act="rule">比率どおりの金額を入れる</button><button type="button" data-act="cancel">やめる</button>' +
+          '<p class="' + (editErr ? "err" : "hint") + '">' + (editErr || ("賭け金は" + yen(UNIT) + "単位で入れます。次に当たると、比率で分け直した金額に戻ります。")) + '</p></div>'
+        : '<div class="army-tools"><button type="button" data-act="edit">賭け金を変更</button></div>';
       const revive = dead && a.funds < a.alloc ? '<div class="revive">復活まで あと' + yen(a.alloc - a.funds) + '</div>' : "";
-      return '<div class="army' + (on ? " active" : "") + (dead ? " dead" : "") + '">' +
+      return '<div class="army' + (on ? " active" : "") + (dead ? " dead" : "") + '" data-i="' + i + '">' +
         '<div class="army-top"><div class="army-name c' + a.lane + '">' + a.name + '</div>' + pill + '</div>' +
         '<div class="army-funds">残り <b>' + yen(a.funds) + '</b> / ' + yen(a.alloc) +
           (a.funds > baseOf(a) ? '<span class="gain">利益 +' + yen(a.funds - baseOf(a)) + '</span>' : '') + '</div>' +
-        '<div class="ladder" style="grid-template-columns:repeat(' + a.ladder.length + ',minmax(0,1fr))">' + steps + '</div>' + revive + '</div>';
+        '<div class="ladder" style="grid-template-columns:repeat(' + a.ladder.length + ',minmax(0,1fr))">' + steps + '</div>' + revive + tools + '</div>';
     }).join("");
 
     // 履歴
@@ -918,6 +1024,19 @@ td.jp{font-family:var(--font-body)}
     ARMY_DEF.forEach((_, i) => writeRatioField(i, DEFAULT_STEP_RATIO));
     renderCapHint();
   });
+  // 部隊ごとの「賭け金を変更」
+  $("armies").addEventListener("click", e => {
+    const btn = e.target.closest("button[data-act]"); if (!btn) return;
+    const i = Number(btn.closest(".army").dataset.i), a = state.armies[i];
+    const act = btn.dataset.act;
+    if (act === "edit"){ closeEdit(); editArmy = i; draft = a.ladder.slice(); render(); const f = $("armies").querySelector('.army[data-i="' + i + '"] input'); if (f) f.focus(); }
+    else if (act === "cancel"){ closeEdit(); render(); }
+    else if (act === "rule"){ draft = a.ladder.map((v, k) => k >= a.step ? a.ruleLadder[k] : v); editErr = ""; render(); }
+    else if (act === "save") saveEdit();
+  });
+  $("armies").addEventListener("input", e => {
+    if (e.target.matches("input[data-k]")) draft[Number(e.target.dataset.k)] = e.target.value;
+  });
   $("addTicket").addEventListener("click", () => { if (tickets.length < 20){ tickets.push(5.0); renderTickets(); renderCalc(); } });
   $("hitBtn").addEventListener("click", () => settle(true));
   $("missBtn").addEventListener("click", () => settle(false));
@@ -926,7 +1045,7 @@ td.jp{font-family:var(--font-body)}
     // 取り消したレースを入力欄に戻す
     const last = state.history[state.history.length - 1];
     const rateNow = state.targetRate;
-    state = migrate(JSON.parse(undoStack.pop()));
+    state = migrate(JSON.parse(undoStack.pop())); closeEdit();
     // 目標回収率は戻さず、今の設定のままにする
     setTarget(rateNow);
     if (last && last.date){ form = {date: last.date, venue: last.venue, race: last.race}; writeForm(); }
@@ -947,6 +1066,7 @@ td.jp{font-family:var(--font-body)}
   });
   $("resetCancel").addEventListener("click", () => { $("resetConfirm").hidden = true; });
   $("resetOk").addEventListener("click", () => {
+    closeEdit();
     state = newState(state.capital, state.targetRate, ratiosOf(state)); undoStack = [];
     form.race = 1; writeForm();
     $("payout").value = "";
@@ -968,6 +1088,7 @@ td.jp{font-family:var(--font-body)}
   });
   // 「この金額で開始」：上（軍資金の設定）と下（段比率の設定）のどちらのボタンでも同じ。エラーは押したほうの近くに出す
   function startNew(err){
+    closeEdit();
     $("setupErr").hidden = true; $("ratioErr").hidden = true;
     const fail = msg => { err.textContent = msg; err.hidden = false; };
     const cap = capInput();
