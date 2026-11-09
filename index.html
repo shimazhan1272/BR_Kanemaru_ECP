@@ -48,7 +48,7 @@ input[type=date]{width:auto}
 /* 段比率：部隊ごとに「欄:欄:欄」 */
 .ratio-field{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:500}
 .ratio-boxes{display:flex;align-items:center;gap:4px;color:var(--muted);font-family:var(--font-num);font-weight:700}
-.ratio-boxes input[type=number]{width:52px;padding:8px 4px;text-align:center;-moz-appearance:textfield;appearance:textfield}
+.ratio-boxes input[type=number]{width:48px;padding:8px 2px;text-align:center;-moz-appearance:textfield;appearance:textfield}
 .ratio-boxes input::-webkit-outer-spin-button,.ratio-boxes input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .ratio-boxes input[aria-invalid=true]{border-color:var(--hit)}
 input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -107,6 +107,8 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .step{border:1px solid var(--line);border-radius:6px;padding:6px;text-align:center;display:grid}
 .step small{font-size:11px;color:var(--muted)}
 .step b{font-family:var(--font-num);font-size:14px}
+.ladder.many .step{padding:6px 2px}
+.ladder.many .step b{font-size:12.5px}
 .step.now{background:var(--ink);color:var(--surface);border-color:var(--ink)}
 .step.now small{color:inherit;opacity:.75}
 .step.gone b{text-decoration:line-through;color:var(--dead)}
@@ -151,7 +153,8 @@ td.jp{font-family:var(--font-body)}
   .row > label{flex:1 1 0;min-width:0}
   .row input{width:100%}
   .row > .ratio-field{flex:1 1 100%;display:flex;justify-content:space-between;align-items:center;gap:10px}
-  .row .ratio-boxes input[type=number]{width:60px}
+  .row .ratio-boxes input[type=number]{width:46px}
+  .row > .ratio-field{flex-wrap:wrap}
   .row > button{flex:1 1 100%;padding-block:12px}
   .row > button.sub{flex:1 1 100%;padding-block:8px;font-size:14px}
   .race-fields{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:10px}
@@ -171,7 +174,7 @@ td.jp{font-family:var(--font-body)}
 <div class="wrap">
   <header>
     <h1>金丸法<span class="x">×</span>ECP 資金管理</h1>
-    <p class="lead">軍資金を歩兵・騎馬隊・本隊の三部隊に分け、各部隊を段の比率（初期設定は<span data-k="step">1:3:9</span>）に分けて張ります。合成オッズ<span data-k="ok">1.5</span>倍以上で当たれば、その部隊の負けを取り戻してプラスになります。</p>
+    <p class="lead">軍資金を歩兵・騎馬隊・本隊の三部隊に分け、各部隊を段の比率（初期設定は<span data-k="step">1:3:9</span>）に分けて張ります。各段で当たればその部隊の負けを取り戻してプラスになるよう、必要な合成オッズを表示します。</p>
   </header>
 
   <section class="panel" aria-labelledby="setup-h">
@@ -269,7 +272,7 @@ td.jp{font-family:var(--font-body)}
   <section class="panel">
     <details id="ratioPanel">
       <summary>段比率の設定 <span class="summary-note" id="ratioNow"></span></summary>
-      <p class="hint">部隊ごとに段の比率を「欄 : 欄 : 欄」で入れます。2段にするときは3つ目を空欄にします。反映は「この金額で開始」を押したときです（軍資金・目標回収率は上の「軍資金の設定」の値を使います）。</p>
+      <p class="hint">部隊ごとに段の比率を「欄 : 欄 : 欄」で入れます。段を減らすときは、後ろの欄を空欄にします（2段〜4段）。反映は「この金額で開始」を押したときです（軍資金・目標回収率は上の「軍資金の設定」の値を使います）。</p>
       <div class="row" style="margin-top:12px">
         <!-- 部隊ごとの段比率の欄はスクリプトで作る（段の数の上限だけ欄を並べる） -->
         <button type="button" class="sub" id="ratioReset">初期値に戻す</button>
@@ -286,13 +289,13 @@ td.jp{font-family:var(--font-body)}
     <h2 id="rule-h">ルール</h2>
     <ol class="rules" style="margin-top:10px">
       <li>軍資金を約<span data-k="army">1:2:4</span>で歩兵・騎馬隊・本隊に分けます（端数は本隊へ）。</li>
-      <li>各部隊をさらに段の比率（初期設定は<span data-k="step">1:3:9</span>。部隊ごとに<span data-k="counts">2段か3段</span>で変更できます）に分け、1段目から順に張ります。外れたら次の段へ進み、最後の段まで外れたら全滅です。</li>
+      <li>各部隊をさらに段の比率（初期設定は<span data-k="step">1:3:9</span>。部隊ごとに<span data-k="counts">2段か3段</span>で変更できます。以前の初期設定 <span data-k="legacy">1:3:9</span> で始めた進み具合はそのまま続きます）に分け、1段目から順に張ります。外れたら次の段へ進み、最後の段まで外れたら全滅です。</li>
       <li>歩兵が全滅したら騎馬隊、騎馬隊も全滅したら本隊が出撃します。</li>
       <li>当たったら、その部隊は1段目に戻り、残りの資金でその部隊の段の比率に分け直します。最初の配分に足りないときは、配分（取り戻す目標）はそのままにして、今ある資金を比率に近い割合で分けます。</li>
       <li>各部隊の「賭け金を変更」で、まだ張っていない段の賭け金を手で変えられます（次に当たると、比率で分け直した金額に戻ります）。</li>
       <li>本隊の利益（最初の配分を超えた分）が騎馬隊の満額に届いたら騎馬隊へ、騎馬隊の利益が歩兵の満額に届いたら歩兵へ移して復活させ、次からは復活した部隊で張ります。</li>
       <li>配分・各段の投票額・移す金額は<span data-k="unit">100</span>円単位です。払戻の<span data-k="unit">100</span>円未満の端数は張らずにその部隊に残します。</li>
-      <li>合成オッズは<span data-k="ok">1.5</span>倍（払戻が投票額の<span data-k="ok">1.5</span>倍）あればOK。各段で必要な合成オッズは「次の投票」と「三部隊の状況」に表示します。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。目標回収率は途中で変えても、履歴を消さずにその場で反映されます。</li>
+      <li>各段で必要な合成オッズ（その段で当たったとき、部隊の負けを取り戻せるオッズ）は「次の投票」と「三部隊の状況」に表示します。総資金が目標回収率（軍資金に対する割合。初期設定は110%）に届いたら終了です。目標回収率は途中で変えても、履歴を消さずにその場で反映されます。</li>
       <li>結果は日付・レース場・レースと、的中なら払戻金額を入れて記録します。</li>    </ol>
     <p class="hint">この資金管理は張り方の順番を決めるもので、ボートレースの控除率（約25%）による期待値のマイナスは変わりません。余裕資金の範囲で使ってください。</p>
   </section>
@@ -312,10 +315,10 @@ td.jp{font-family:var(--font-body)}
 
   // ---- 配分ルールの定数（金額・倍率はすべてここから求める） ----
   const ARMY_RATIO = [1, 2, 4];          // 歩兵:騎馬隊:本隊
-  const DEFAULT_STEP_RATIO = [1, 3, 9];  // 段の比率の初期値（全部隊）
-  const STEP_COUNTS = [2, 3];            // 設定できる段の数
+  const DEFAULT_STEP_RATIO = [1, 2, 4, 7];  // 段の比率の初期値（全部隊）
+  const LEGACY_STEP_RATIO = [1, 3, 9];      // 以前の初期値（比率を持たない古い保存データ・古いCSVはこの比率）
+  const STEP_COUNTS = [2, 3, 4];            // 設定できる段の数
   const UNIT = 100;                      // 配分・投票額・移す金額の単位（円）
-  const OK_ODDS = 1.5;                   // 目安にする合成オッズ
   const ODDS_DIV = 10;                   // 必要オッズの刻み（10 なら0.1倍単位）
   const sumOf = xs => xs.reduce((s, v) => s + v, 0);
   const ARMY_SUM = sumOf(ARMY_RATIO);
@@ -323,6 +326,7 @@ td.jp{font-family:var(--font-body)}
   const gcd = (a, b) => b ? gcd(b, a % b) : a;
   const lcm = (a, b) => a / gcd(a, b) * b;
   const defaultRatios = () => ARMY_RATIO.map(() => DEFAULT_STEP_RATIO.slice());
+  const legacyRatios = () => ARMY_RATIO.map(() => LEGACY_STEP_RATIO.slice());
   const ratioText = r => r.join(":");
   const sameRatio = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
   // 「4:9」「1：3：9」「1-3-9」などを読む。段の数が STEP_COUNTS にない、1以上の整数でない値があれば null
@@ -431,10 +435,10 @@ td.jp{font-family:var(--font-body)}
     if (legacy) st.legacy = true;
     return st;
   }
-  // 段の比率がない古い保存データは、全部隊 DEFAULT_STEP_RATIO・以前の計算方法として読む
+  // 段の比率がない古い保存データは、全部隊 LEGACY_STEP_RATIO・以前の計算方法として読む
   function migrate(st){
     if (st && st.armies && st.armies.some(a => !a.ratio)){
-      st.armies.forEach(a => { if (!a.ratio) a.ratio = DEFAULT_STEP_RATIO.slice(); });
+      st.armies.forEach(a => { if (!a.ratio) a.ratio = LEGACY_STEP_RATIO.slice(); });
       st.legacy = true;
     }
     if (st && st.armies) st.armies.forEach(a => { if (!a.ruleLadder) a.ruleLadder = a.ladder.slice(); });
@@ -662,18 +666,18 @@ td.jp{font-family:var(--font-body)}
     // 古いCSVの「目標利益%」（10 など）は回収率（110 など）に読み替える
     const rateOf = r => col("目標回収率%") >= 0 ? num(get(r, "目標回収率%")) : 100 + num(get(r, "目標利益%"));
     const rate = rateOf(data[0]);
-    // 段の比率：列がない（または空の）古いCSVは全部隊 DEFAULT_STEP_RATIO として読む
+    // 段の比率：列がない（または空の）古いCSVは全部隊 LEGACY_STEP_RATIO として読む
     const hasRatio = RATIO_COLS.map(c => col(c) >= 0 && get(data[0], c) !== "");
     if (hasRatio.some(Boolean) && !hasRatio.every(Boolean)) throw new Error("2行目: 段比率の欄がそろっていません（" + RATIO_COLS.join("・") + "）。");
     const ratios = hasRatio[0] ? RATIO_COLS.map(c => {
       const r = parseRatio(get(data[0], c));
       if (!r) throw new Error("2行目: 「" + c + "」の値「" + get(data[0], c) + "」が読み取れません。");
       return r;
-    }) : defaultRatios();
+    }) : legacyRatios();
     if (!allocate(cap, ratios) || !(rate > 100)) throw new Error("軍資金または目標回収率の値が読み取れません。");
     // 段の計算方法：比率の欄がない古いCSVは以前の方法、あるCSVは今の方法で再生する。
     // 合わないときは、全部隊が初期値の比率なら、もう一方の方法でも試す（以前の方法で続けていたデータの再開用）
-    const allDefault = ratios.every(r => sameRatio(r, DEFAULT_STEP_RATIO));
+    const allDefault = ratios.every(r => sameRatio(r, LEGACY_STEP_RATIO));
     const order = hasRatio[0] ? [false, true] : [true, false];
     // 段金額の列があるCSVは、記録した投票額と段の金額をそのまま使う（手で変えた金額も再現する）
     const hasLadder = LADDER_COLS.every(c => col(c) >= 0) && data.every(r => LADDER_COLS.every(c => get(r, c) !== ""));
@@ -820,7 +824,7 @@ td.jp{font-family:var(--font-body)}
     return parseRatio(filled.join(":"));
   }
   function writeRatioField(i, r){ ratioBoxes(i).forEach((b, k) => { b.value = r[k] == null ? "" : r[k]; }); }
-  const RATIO_MSG = "段比率は1以上の整数を左から" + STEP_COUNTS.join("つか") + "つ入れてください（" + MIN_STEPS + "段にするときは" + (MIN_STEPS + 1) + "つ目" + (MAX_STEPS - MIN_STEPS > 1 ? "から" : "") + "を空欄に）。";
+  const RATIO_MSG = "段比率は1以上の整数を左から" + STEP_COUNTS.join("つか") + "つ入れてください（段を減らすときは、後ろの欄を空欄に）。";
   function ratioInputs(){
     const rs = ARMY_DEF.map((_, i) => readRatioField(i));
     rs.forEach((r, i) => ratioBoxes(i).forEach(b => b.setAttribute("aria-invalid", r ? "false" : "true")));
@@ -889,8 +893,7 @@ td.jp{font-family:var(--font-body)}
         hint.textContent = "払戻 " + yen(p) + " では" + a.name + "の負け（" + yen(need) + "）を取り戻せません。";
         hint.className = "hint warn";
       } else {
-        hint.textContent = "この段で当たったとき、" + a.name + "の負けを取り戻すには払戻 " + yen(need) +
-          " 以上が必要です（合成オッズ" + OK_ODDS + "倍なら " + yen(Math.floor(bet.amount * OK_ODDS)) + "）。";
+        hint.textContent = "この段で当たったとき、" + a.name + "の負けを取り戻すには払戻 " + yen(need) + " 以上が必要です。";
         hint.className = "hint";
       }
     }
@@ -931,7 +934,7 @@ td.jp{font-family:var(--font-body)}
         '<div class="army-top"><div class="army-name c' + a.lane + '">' + a.name + '</div>' + pill + '</div>' +
         '<div class="army-funds">残り <b>' + yen(a.funds) + '</b> / ' + yen(a.alloc) +
           (a.funds > baseOf(a) ? '<span class="gain">利益 +' + yen(a.funds - baseOf(a)) + '</span>' : '') + '</div>' +
-        '<div class="ladder" style="grid-template-columns:repeat(' + a.ladder.length + ',minmax(0,1fr))">' + steps + '</div>' + revive + tools + '</div>';
+        '<div class="ladder' + (a.ladder.length > 3 ? " many" : "") + '" style="grid-template-columns:repeat(' + a.ladder.length + ',minmax(0,1fr))">' + steps + '</div>' + revive + tools + '</div>';
     }).join("");
 
     // 履歴
@@ -1005,7 +1008,7 @@ td.jp{font-family:var(--font-body)}
     $("capital").value = e.currentTarget.dataset.v; renderCapHint(); $("capital").focus();
   }));
   // 画面の説明文に比率・単位・目安のオッズを入れる
-  const TEXT = {army: ARMY_RATIO.join(":"), step: ratioText(DEFAULT_STEP_RATIO), counts: STEP_COUNTS.join("段か") + "段", unit: UNIT.toLocaleString("ja-JP"), ok: String(OK_ODDS)};
+  const TEXT = {army: ARMY_RATIO.join(":"), step: ratioText(DEFAULT_STEP_RATIO), legacy: ratioText(LEGACY_STEP_RATIO), counts: STEP_COUNTS.join("段か") + "段", unit: UNIT.toLocaleString("ja-JP")};
   document.querySelectorAll("[data-k]").forEach(el => { el.textContent = TEXT[el.dataset.k]; });
   // 段比率の欄を作る：「歩兵の段比率 [ ]:[ ]:[ ]」
   ARMY_DEF.forEach((d, i) => {

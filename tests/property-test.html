@@ -41,15 +41,24 @@
     const oldAlloc = c => { const u = Math.floor(c / 7 / 1300) * 1300; return u < 1300 ? null : [u, u * 2, c - u * 3]; };
     const oldLadder = al => { const a = Math.floor(al / 13 / 100) * 100; return [a, a * 3, al - a * 4]; };
 
-    const DEF = T.defaultRatios();
+    // 以前の初期値 1:3:9（以前の版との比較・古いデータ用）と、今の初期値
+    const DEF = [[1, 3, 9], [1, 3, 9], [1, 3, 9]];
+    const NEWDEF = T.defaultRatios();
+    ok(NEWDEF.every(r => r.join(":") === "1:2:4:7"), "default ratio should be 1:2:4:7: " + NEWDEF.map(r => r.join(":")));
+    const nu = T.unitsFor(NEWDEF);
+    ok(nu.inf === 1400 && nu.min === 9800, "units for 1:2:4:7: " + JSON.stringify(nu));
+    const ns = T.newState(100000, 110);
+    ok(ns.armies.map(a => a.ladder.join("/")).join(" | ") === "1000/2000/4000/7000 | 2000/4000/8000/14000 | 4100/8200/16500/29200", "100,000 with 1:2:4:7: " + ns.armies.map(a => a.ladder.join("/")).join(" | "));
+    L.push("default 1:2:4:7, 100,000: " + ns.armies.map(a => a.name + " " + a.ladder.join("/")).join(" | ") + " ・ needs " + T.stepNeeds(ns.armies[0]).map(n => n.label).join("/"));
     const ratioSets = [DEF, [[4, 9], [1, 3, 9], [1, 3, 9]], [[1, 2], [1, 3, 9], [2, 3, 5]], [[2, 4], [3, 3, 3], [1, 3]], [[1, 1], [1, 1, 1], [5, 7]]];
-    for (let k = 0; k < 10; k++) ratioSets.push([0, 1, 2].map(() => Array.from({length: ri(2, 3)}, () => ri(1, 12))));
+    ratioSets.push(T.defaultRatios(), [[1, 2, 4, 7], [1, 3, 9], [4, 9]]);
+    for (let k = 0; k < 10; k++) ratioSets.push([0, 1, 2].map(() => Array.from({length: ri(2, 4)}, () => ri(1, 12))));
     const rsText = rs => rs.map(r => r.join(":")).join(" / ");
 
     // ---- 0. 比率の読み取り ----
     const pr = (t, e) => ok(JSON.stringify(T.parseRatio(t)) === JSON.stringify(e), "parseRatio " + t + " -> " + JSON.stringify(T.parseRatio(t)));
     pr("4:9", [4, 9]); pr("1：3：9", [1, 3, 9]); pr(" 1-3-9 ", [1, 3, 9]); pr("2 5", [2, 5]);
-    pr("9", null); pr("1:3:9:27", null); pr("0:3", null); pr("1.5:3", null); pr("a:b", null); pr("", null);
+    pr("9", null); pr("1:2:4:7", [1, 2, 4, 7]); pr("1:3:9:27:81", null); pr("0:3", null); pr("1.5:3", null); pr("a:b", null); pr("", null);
 
     // ---- 1. 初期値1:3:9：以前の配分と同じか／段の計算式 ----
     for (let c = 100; c <= 300000; c += 100){
@@ -249,11 +258,24 @@
     }
     // 近い割合：どの段も、取り分（個数×比率÷合計）との差が1個未満（最低1個にした段を除く）、合計は全部
     for (let k = 0; k < 3000; k++){
-      const r = Array.from({length: ri(2, 3)}, () => ri(1, 12)), amt = ri(0, 3000) * 10;
+      const r = Array.from({length: ri(2, 4)}, () => ri(1, 12)), amt = ri(0, 3000) * 10;
       const l = T.nearLadder(amt, r), units = Math.floor(amt / UNIT), s2 = sum(r);
       if (units < r.length) continue;
       ok(sum(l) === units * UNIT && l.every(v => v >= UNIT && v % UNIT === 0), () => "nearLadder sum/min " + amt + " " + r + " " + l);
-      ok(l.every((v, i) => v === UNIT || Math.abs(v / UNIT - units * r[i] / s2) < 1), () => "nearLadder not near ratio " + amt + " " + r + " " + l);
+      const q = r.map(x => units * x / s2);
+      // 最低1個にする段がなければ、どの段も取り分との差が1個未満
+      if (q.every(x => x >= 1)) ok(l.every((v, i) => Math.abs(v / UNIT - q[i]) < 1), () => "nearLadder not near ratio " + amt + " " + r + " " + l);
+      // 個数が少ないときは、全部の分け方を調べて、取り分との差の最大が一番小さい分け方と同じになっているか
+      if (units <= 24){
+        let best = Infinity;
+        const rec = (i, left, acc) => {
+          if (i === r.length - 1){ if (left >= 1) best = Math.min(best, Math.max(acc, Math.abs(left - q[i]))); return; }
+          for (let v = 1; v <= left - (r.length - 1 - i); v++) rec(i + 1, left - v, Math.max(acc, Math.abs(v - q[i])));
+        };
+        rec(0, units, 0);
+        const mine = Math.max(...l.map((v, i) => Math.abs(v / UNIT - q[i])));
+        ok(mine <= best + 1e-9, () => "nearLadder not the closest split " + amt + " " + r + " " + l + " (max dev " + mine.toFixed(3) + " vs best " + best.toFixed(3) + ")");
+      }
     }
     // 比率がない古い保存データ
     const legacySaved = JSON.parse(JSON.stringify(T.newState(100000, 110, DEF, true)));
@@ -263,14 +285,14 @@
     L.push("default 100,000 本隊: new " + T.ladder(61000, [1, 3, 9]).join("/") + " vs previous " + T.legacyLadder(61000, [1, 3, 9]).join("/"));
 
     // ---- 7. 画面：段比率の欄（欄:欄:欄）と開始 ----
-    const boxes = i => [0, 1, 2].map(k => $("ratio" + i + "_" + k));
+    const boxes = i => [0, 1, 2, 3].map(k => $("ratio" + i + "_" + k));
     const getR = i => boxes(i).map(b => b.value).join(":");
     const setR = (i, vals) => { boxes(i).forEach((b, k) => { b.value = vals[k] == null ? "" : vals[k]; }); boxes(i)[0].dispatchEvent(new Event("input")); };
     const setV = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); };
     ok($("ratioPanel").open === false, "ratio settings must start collapsed");
     T.state = T.newState(100000, 110, DEF); T.setUndo([]); T.render();
-    ok(getR(0) === "1:3:9" && getR(2) === "1:3:9", "ratio boxes show current ratios: " + getR(0));
-    setR(0, [4, 9, ""]); setV("capital", "25000");
+    ok(getR(0) === "1:3:9:" && getR(2) === "1:3:9:", "ratio boxes show current ratios: " + getR(0));
+    setR(0, [4, 9, "", ""]); setV("capital", "25000");
     ok(boxes(0).every(b => b.getAttribute("aria-invalid") === "false"), "4:9 with empty 3rd box is valid");
     L.push("hint (歩兵 4:9, 25,000): " + $("capHint").innerText.replace(/\s+/g, " ") + " | " + $("ratioHint").textContent);
     $("startBtn").click();
@@ -278,10 +300,10 @@
     ok(st.capital === 25000 && st.armies[0].ratio.join(":") === "4:9" && st.armies[0].ladder.length === 2 && !st.legacy, "start with 4:9");
     ok(JSON.stringify(st.armies[0].ladder) === JSON.stringify(refLadder(st.armies[0].alloc, [4, 9])), "4:9 ladder");
     ok(document.querySelectorAll("#armies .army")[0].querySelectorAll(".step").length === 2, "歩兵 shows 2 steps");
-    ok(getR(0) === "4:9:", "after start the boxes show 4:9 and an empty 3rd box: " + getR(0));
+    ok(getR(0) === "4:9::", "after start the boxes show 4:9 and empty 3rd/4th boxes: " + getR(0));
     L.push("after start: 歩兵 " + st.armies[0].ladder.join("/") + " ・ " + $("ratioSummary").textContent);
     // 読めない入力：途中が空欄、0、小数、1つだけ
-    for (const bad of [[1, "", 9], [0, 3, 9], [1.5, 3, ""], [4, "", ""]]){
+    for (const bad of [[1, "", 9, ""], [0, 3, 9, ""], [1.5, 3, "", ""], [4, "", "", ""], [1, 2, "", 7]]){
       setR(1, bad); $("startBtn").click();
       ok(!$("setupErr").hidden && T.state === st && boxes(1).every(b => b.getAttribute("aria-invalid") === "true"), "invalid ratio " + JSON.stringify(bad) + " must not start");
     }
@@ -289,11 +311,13 @@
     L.push("invalid ratio error: " + $("setupErr").textContent + " / " + $("ratioErr").textContent);
     // 初期値に戻す：欄だけ戻り、開始はしない
     $("ratioReset").click();
-    ok([0, 1, 2].every(i => getR(i) === "1:3:9") && T.state === st && st.armies[0].ratio.join(":") === "4:9", "reset button only resets the boxes");
+    ok([0, 1, 2].every(i => getR(i) === "1:2:4:7") && T.state === st && st.armies[0].ratio.join(":") === "4:9", "reset button only resets the boxes to 1:2:4:7");
+    ok($("ratioReset").textContent === "初期値（1:2:4:7）に戻す", "reset label: " + $("ratioReset").textContent);
     // 段比率の設定の中の「この金額で開始」でも開始できる
     // 本隊 2:5 は最低の軍資金が上がるので、十分な軍資金で開始する
-    setR(2, [2, 5, ""]); setV("capital", String(T.unitsFor([[1, 3, 9], [1, 3, 9], [2, 5]]).min * 2)); $("ratioStart").click();
-    ok(T.state !== st && T.state.armies[2].ratio.join(":") === "2:5" && $("ratioErr").hidden, "start from the ratio panel");
+    setR(2, [2, 5, "", ""]); setV("capital", String(T.unitsFor([[1, 2, 4, 7], [1, 2, 4, 7], [2, 5]]).min * 2)); $("ratioStart").click();
+    ok(T.state !== st && T.state.armies[2].ratio.join(":") === "2:5" && T.state.armies[0].ladder.length === 4 && $("ratioErr").hidden, "start from the ratio panel");
+    ok(document.querySelectorAll("#armies .army")[0].querySelectorAll(".step").length === 4, "4 step boxes for 1:2:4:7");
     L.push("ratio panel start: " + $("ratioNow").textContent);
   } catch (e){ fails.push("EXCEPTION " + e + "\n" + (e.stack || "")); }
   report();
