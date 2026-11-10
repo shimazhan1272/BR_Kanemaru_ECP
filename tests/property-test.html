@@ -17,10 +17,11 @@
     const holder = document.createElement("div"); holder.innerHTML = src.slice(src.indexOf("<body>") + 6, i); document.body.appendChild(holder);
     let js = src.slice(i + 8, src.indexOf("<\/script>", i));
     const end = js.lastIndexOf("})();");
-    js = js.slice(0, end) + "window.__T={allocate,ladder,legacyLadder,unitsFor,isClean,cleanNeighbors,needOdds,stepNeeds,currentBet,apply,render,newState,migrate,parseRatio,toCSV,replayCSV,defaultRatios,nearLadder,UNIT,ARMY_RATIO,ODDS_DIV,DEFAULT_STEP_RATIO,get state(){return state},set state(v){state=v},setUndo(v){undoStack=v}};" + js.slice(end);
+    js = js.slice(0, end) + "window.__T={allocate,ladder,legacyLadder,unitsFor,isClean,cleanNeighbors,needOdds,stepNeeds,currentBet,apply,render,newState,migrate,parseRatio,parseArmyRatio,toCSV,replayCSV,defaultRatios,nearLadder,UNIT,ODDS_DIV,DEFAULT_ARMY_RATIO,LEGACY_ARMY_RATIO,get state(){return state},set state(v){state=v},setUndo(v){undoStack=v}};" + js.slice(end);
     const s = document.createElement("script"); s.textContent = js; document.body.appendChild(s);
     const T = window.__T;
-    const {UNIT, ARMY_RATIO, ODDS_DIV} = T;
+    const {UNIT, ODDS_DIV} = T;
+    const AR0 = [1, 2, 4];   // 以前の固定の部隊の割合
     const $ = id => document.getElementById(id);
     const yen = n => "¥" + Math.round(n).toLocaleString("ja-JP");
     const sum = xs => xs.reduce((a, b) => a + b, 0);
@@ -31,9 +32,9 @@
     // 各段＝配分×比率÷合計 を100円単位で切り捨て、端数は最後の段
     const refLadder = (alloc, r) => { const s = sum(r); const st = r.slice(0, -1).map(x => Math.floor(alloc * x / s / UNIT) * UNIT); return [...st, alloc - sum(st)]; };
     const exactLadder = (alloc, r) => { const l = T.ladder(alloc, r); return l.every((v, k) => v * sum(r) === alloc * r[k]); };
-    const refClean = (c, rs) => {
-      const al = T.allocate(c, rs); if (!al) return false;
-      if (!al.every((v, k) => v * ARMY_RATIO[0] === al[0] * ARMY_RATIO[k])) return false;
+    const refClean = (c, rs, ar) => {
+      const al = T.allocate(c, rs, ar); if (!al) return false;
+      if (!al.every((v, k) => v * ar[0] === al[0] * ar[k])) return false;
       return al.every((v, k) => exactLadder(v, rs[k]));
     };
     const refT = (pay, amount) => { let t = 1; while (amount * t < pay * ODDS_DIV) t++; return Math.max(t, ODDS_DIV + 1); };
@@ -43,27 +44,34 @@
 
     // 以前の初期値 1:3:9（以前の版との比較・古いデータ用）と、今の初期値
     const DEF = [[1, 3, 9], [1, 3, 9], [1, 3, 9]];
-    const NEWDEF = T.defaultRatios();
-    ok(NEWDEF.every(r => r.join(":") === "1:2:4:7"), "default ratio should be 1:2:4:7: " + NEWDEF.map(r => r.join(":")));
-    const nu = T.unitsFor(NEWDEF);
-    ok(nu.inf === 1400 && nu.min === 9800, "units for 1:2:4:7: " + JSON.stringify(nu));
-    const ns = T.newState(100000, 110);
-    ok(ns.armies.map(a => a.ladder.join("/")).join(" | ") === "1000/2000/4000/7000 | 2000/4000/8000/14000 | 4100/8200/16500/29200", "100,000 with 1:2:4:7: " + ns.armies.map(a => a.ladder.join("/")).join(" | "));
-    L.push("default 1:2:4:7, 100,000: " + ns.armies.map(a => a.name + " " + a.ladder.join("/")).join(" | ") + " ・ needs " + T.stepNeeds(ns.armies[0]).map(n => n.label).join("/"));
-    const ratioSets = [DEF, [[4, 9], [1, 3, 9], [1, 3, 9]], [[1, 2], [1, 3, 9], [2, 3, 5]], [[2, 4], [3, 3, 3], [1, 3]], [[1, 1], [1, 1, 1], [5, 7]]];
-    ratioSets.push(T.defaultRatios(), [[1, 2, 4, 7], [1, 3, 9], [4, 9]]);
-    for (let k = 0; k < 10; k++) ratioSets.push([0, 1, 2].map(() => Array.from({length: ri(2, 4)}, () => ri(1, 12))));
-    const rsText = rs => rs.map(r => r.join(":")).join(" / ");
+    // 今の初期値：部隊の割合 8:8:9、段比率 1:2:5／1:2:5／1:2:6、軍資金 ¥10,000
+    const NEWDEF = T.defaultRatios(), ARDEF = T.DEFAULT_ARMY_RATIO;
+    ok(NEWDEF.map(r => r.join(":")).join(" ") === "1:2:5 1:2:5 1:2:6" && ARDEF.join(":") === "8:8:9", "defaults: " + NEWDEF.map(r => r.join(":")) + " / " + ARDEF);
+    ok(T.LEGACY_ARMY_RATIO.join(":") === "1:2:4", "legacy army ratio");
+    const nu = T.unitsFor(NEWDEF, ARDEF);
+    ok(nu.inf === 100 && nu.infantry === 800 && nu.min === 2500, "units for the defaults: " + JSON.stringify(nu));
+    const ns = T.newState(10000, 110);
+    const nsText = ns.armies.map(a => a.alloc + ":" + a.ladder.join("/")).join(" | ");
+    ok(nsText === "3200:400/800/2000 | 3200:400/800/2000 | 3600:400/800/2400" && ns.armyRatio.join(":") === "8:8:9", "10,000 with the defaults: " + nsText);
+    ok(T.isClean(10000, NEWDEF, ARDEF), "10,000 is clean with the defaults");
+    L.push("defaults (割合 8:8:9・1:2:5/1:2:5/1:2:6), 10,000: " + ns.armies.map(a => a.name + " " + a.alloc + " = " + a.ladder.join("/")).join(" | ") + " ・ needs " + ns.armies.map(a => T.stepNeeds(a).map(n => n.label).join("/")).join(" | "));
+    // 比率の組み合わせ（段比率と部隊の割合）
+    const sets = [[DEF, AR0], [[[4, 9], [1, 3, 9], [1, 3, 9]], AR0], [[[1, 2], [1, 3, 9], [2, 3, 5]], AR0], [[[2, 4], [3, 3, 3], [1, 3]], AR0], [[[1, 1], [1, 1, 1], [5, 7]], AR0],
+      [T.defaultRatios(), [8, 8, 9]], [[[1, 2, 4, 7], [1, 3, 9], [4, 9]], [1, 2, 4]], [DEF, [8, 8, 9]], [T.defaultRatios(), [3, 2, 5]], [[[1, 3, 9], [1, 2, 5], [2, 7]], [2, 3, 3]]];
+    for (let k = 0; k < 10; k++) sets.push([[0, 1, 2].map(() => Array.from({length: ri(2, 4)}, () => ri(1, 12))), k < 5 ? AR0 : [0, 1, 2].map(() => ri(1, 9))]);
+    const ratioSets = sets.map(x => x[0]);
+    const rsText = (rs, ar) => (ar ? "割合 " + ar.join(":") + " / " : "") + rs.map(r => r.join(":")).join(" / ");
 
     // ---- 0. 比率の読み取り ----
     const pr = (t, e) => ok(JSON.stringify(T.parseRatio(t)) === JSON.stringify(e), "parseRatio " + t + " -> " + JSON.stringify(T.parseRatio(t)));
     pr("4:9", [4, 9]); pr("1：3：9", [1, 3, 9]); pr(" 1-3-9 ", [1, 3, 9]); pr("2 5", [2, 5]);
+    for (const [t, e] of [["8:8:9", [8, 8, 9]], ["1：2：4", [1, 2, 4]], ["8:8", null], ["0:1:2", null]]) ok(JSON.stringify(T.parseArmyRatio(t)) === JSON.stringify(e), "parseArmyRatio " + t);
     pr("9", null); pr("1:2:4:7", [1, 2, 4, 7]); pr("1:3:9:27:81", null); pr("0:3", null); pr("1.5:3", null); pr("a:b", null); pr("", null);
 
     // ---- 1. 初期値1:3:9：以前の配分と同じか／段の計算式 ----
     for (let c = 100; c <= 300000; c += 100){
-      ok(JSON.stringify(T.allocate(c, DEF)) === JSON.stringify(oldAlloc(c)), () => "allocate differs from old at " + c);
-      const al = T.allocate(c, DEF);
+      ok(JSON.stringify(T.allocate(c, DEF, AR0)) === JSON.stringify(oldAlloc(c)), () => "allocate differs from old at " + c);
+      const al = T.allocate(c, DEF, AR0);
       if (al) al.forEach(v => ok(JSON.stringify(T.legacyLadder(v, [1, 3, 9])) === JSON.stringify(oldLadder(v)), () => "legacy ladder differs at " + v));
     }
     for (const rs of ratioSets) for (let k = 0; k < 300; k++){
@@ -73,21 +81,23 @@
     L.push("1:3:9 allocation identical to previous version for 3,000 capitals; ladder formula checked");
 
     // ---- 2. 比率から求める単位：最低額・歩兵の単位が最小で、端数が出ない ----
-    for (const rs of ratioSets){
-      const u = T.unitsFor(rs);
-      ok(T.allocate(u.min, rs) && !T.allocate(u.min - UNIT, rs), () => "min capital wrong for " + rsText(rs) + ": " + u.min);
-      ok(refClean(u.min, rs), () => "min capital not clean " + rsText(rs));
-      ok(T.allocate(u.min, rs).every((v, k) => T.ladder(v, rs[k])[0] >= UNIT), () => "first step < UNIT at min " + rsText(rs));
-      for (let x = UNIT; x < u.inf; x += UNIT){
-        if (ARMY_RATIO.every((R, k) => exactLadder(x * R, rs[k]))){ ok(false, "smaller infantry unit " + x + " works for " + rsText(rs)); break; }
+    for (const [rs, ar] of sets){
+      const u = T.unitsFor(rs, ar);
+      ok(u.infantry === u.inf * ar[0], "infantry unit = per-part unit x infantry share");
+      ok(T.allocate(u.min, rs, ar) && !T.allocate(u.min - UNIT, rs, ar), () => "min capital wrong for " + rsText(rs, ar) + ": " + u.min);
+      ok(refClean(u.min, rs, ar), () => "min capital not clean " + rsText(rs, ar));
+      ok(T.allocate(u.min, rs, ar).every((v, k) => T.ladder(v, rs[k])[0] >= UNIT), () => "first step < UNIT at min " + rsText(rs, ar));
+      // 総当たりは範囲が広すぎない組み合わせだけ（割合を乱数にすると単位が大きくなることがある）
+      if (u.inf / UNIT <= 20000) for (let x = UNIT; x < u.inf; x += UNIT){
+        if (ar.every((R, k) => exactLadder(x * R, rs[k]))){ ok(false, "smaller unit " + x + " works for " + rsText(rs, ar)); break; }
       }
     }
-    L.push("units: " + ratioSets.slice(0, 5).map(rs => rsText(rs) + " → 歩兵の単位 " + T.unitsFor(rs).inf + "・最低 " + T.unitsFor(rs).min).join("\n       "));
+    L.push("units: " + sets.slice(0, 10).map(([rs, ar]) => rsText(rs, ar) + " → 歩兵の単位 " + T.unitsFor(rs, ar).infantry + "・最低 " + T.unitsFor(rs, ar).min).join("\n       "));
 
     // ---- 3. 端数が出ない金額（下・上） ----
     let nCaps = 0;
-    for (const rs of ratioSets){
-      const u = T.unitsFor(rs);
+    for (const [rs, ar] of sets){
+      const u = T.unitsFor(rs, ar);
       const caps = [];
       for (let k = 0; k < 120; k++) caps.push(ri(1, Math.ceil(u.min * 6 / UNIT)) * UNIT);
       for (let k = 0; k < 40; k++) caps.push(ri(1, 200000) * UNIT);
@@ -95,28 +105,31 @@
       for (const c of caps){
         if (c <= 0) continue;
         nCaps++;
-        const {low, up} = T.cleanNeighbors(c, rs);
-        ok(T.isClean(c, rs) === refClean(c, rs), () => "isClean mismatch " + c + " " + rsText(rs));
+        const {low, up} = T.cleanNeighbors(c, rs, ar);
+        ok(T.isClean(c, rs, ar) === refClean(c, rs, ar), () => "isClean mismatch " + c + " " + rsText(rs, ar));
         if (c < u.min) ok(low === null, () => "low shown below min " + c);
-        else ok(low !== null && low <= c, () => "low <= input " + c + " low=" + low + " " + rsText(rs));
+        else ok(low !== null && low <= c, () => "low <= input " + c + " low=" + low + " " + rsText(rs, ar));
         ok(up !== null && c < up, () => "input < up " + c + " up=" + up);
-        if (low !== null) ok(refClean(low, rs), () => "low not clean " + low + " " + rsText(rs));
-        ok(refClean(up, rs), () => "up not clean " + up + " " + rsText(rs));
-        for (let x = (low === null ? UNIT : low + UNIT); x < up; x += UNIT) if (refClean(x, rs)){ ok(false, "clean " + x + " between " + low + " and " + up + " " + rsText(rs)); break; }
+        if (low !== null) ok(refClean(low, rs, ar), () => "low not clean " + low + " " + rsText(rs, ar));
+        ok(refClean(up, rs, ar), () => "up not clean " + up + " " + rsText(rs, ar));
+        if ((up - (low || 0)) / UNIT <= 20000) for (let x = (low === null ? UNIT : low + UNIT); x < up; x += UNIT) if (refClean(x, rs, ar)){ ok(false, "clean " + x + " between " + low + " and " + up + " " + rsText(rs, ar)); break; }
       }
     }
     for (const [c, lo, hi] of [[10000, 9100, 18200], [25000, 18200, 27300], [100000, 91000, 100100]]){
-      const r = T.cleanNeighbors(c, DEF); ok(r.low === lo && r.up === hi, "example " + c + " " + JSON.stringify(r));
+      const r = T.cleanNeighbors(c, DEF, AR0); ok(r.low === lo && r.up === hi, "example " + c + " " + JSON.stringify(r));
     }
-    L.push("clean neighbours: " + nCaps + " capitals over " + ratioSets.length + " ratio sets");
+    for (const [c, lo, hi] of [[10000, 10000, 12500], [11000, 10000, 12500], [2400, null, 2500]]){
+      const r = T.cleanNeighbors(c, NEWDEF, ARDEF); ok(r.low === lo && r.up === hi, "default example " + c + " " + JSON.stringify(r));
+    }
+    L.push("clean neighbours: " + nCaps + " capitals over " + sets.length + " ratio sets");
 
     // ---- 4. 端数が出ない軍資金：同じ比率の部隊は段ごとの必要オッズが同じ ----
     let nSame = 0;
-    for (const rs of ratioSets){
-      const u = T.unitsFor(rs);
+    for (const [rs, ar] of sets){
+      const u = T.unitsFor(rs, ar);
       const ref = {};
       for (let k = 1; k <= 30; k += 7){
-        const st = T.newState(u.clean * k, 110, rs);
+        const st = T.newState(u.clean * k, 110, rs, ar);
         st.armies.forEach((a, j) => {
           const lab = T.stepNeeds(a).map(n => n && n.label).join("/"), key = rs[j].join(":");
           if (ref[key] == null) ref[key] = lab; else ok(ref[key] === lab, () => "needs differ for ratio " + key + ": " + ref[key] + " vs " + lab);
@@ -124,7 +137,7 @@
         });
       }
     }
-    L.push("same-ratio armies on clean capitals: " + nSame + " checked (1:3:9 → " + T.stepNeeds(T.newState(91000, 110, DEF).armies[0]).map(n => n.label).join("/") + ", 4:9 → " + T.stepNeeds(T.newState(91000, 110, ratioSets[1]).armies[0]).map(n => n.label).join("/") + ")");
+    L.push("same-ratio armies on clean capitals: " + nSame + " checked (1:3:9 → " + T.stepNeeds(T.newState(91000, 110, DEF, AR0).armies[0]).map(n => n.label).join("/") + ", 4:9 → " + T.stepNeeds(T.newState(91000, 110, ratioSets[1], AR0).armies[0]).map(n => n.label).join("/") + ")");
 
     // ---- 5. シミュレーション：必要オッズ・全滅判定・CSVの保存→読み込み ----
     let nSteps = 0, nRevive = 0, nResplit = 0, nDead = 0, nCsv = 0, nShort = 0, nEdit = 0;
@@ -202,14 +215,14 @@
       if (T.state.history.length){
         const before = JSON.stringify(T.state);
         const re = T.replayCSV(T.toCSV());
-        ok(JSON.stringify(re.state) === before, () => "CSV round trip differs (" + rsText(T.state.armies.map(x => x.ratio)) + (T.state.legacy ? ", legacy" : "") + ")");
+        ok(JSON.stringify(re.state) === before, () => "CSV round trip differs (" + rsText(T.state.armies.map(x => x.ratio), T.state.armyRatio) + (T.state.legacy ? ", legacy" : "") + ")");
         nCsv++;
       }
     };
     for (let run = 0; run < 360; run++){
-      const rs = ratioSets[run % ratioSets.length], u = T.unitsFor(rs);
+      const [rs, ar] = sets[run % sets.length], u = T.unitsFor(rs, ar);
       const c = Math.max(u.min, ri(1, 30) * u.min + (rnd() < 0.5 ? 0 : ri(1, Math.max(1, u.min / UNIT - 1)) * UNIT));
-      simulate(T.newState(c, 101 + ri(0, 40), rs), 40, run % 2 === 1);
+      simulate(T.newState(c, 101 + ri(0, 40), rs, ar), 40, run % 2 === 1);
     }
     L.push("simulated races: " + nSteps + " (dead " + nDead + ", revive " + nRevive + ", re-split " + nResplit + ", shortfall splits " + nShort + ", bet edits via UI " + nEdit + ", CSV round trips " + nCsv + ")");
     ok(nRevive > 0 && nResplit > 0 && nDead > 0 && nShort > 0 && nEdit > 0, "simulation did not cover dead/revive/re-split/shortfall/edit");
@@ -218,15 +231,15 @@
     let nOld = 0, nOldDiff = 0;
     for (let run = 0; run < 120; run++){
       const c = ri(2, 120) * 1000 + (run % 3) * 300;
-      if (!T.allocate(c, DEF)) continue;
-      simulate(T.newState(c, 110, DEF, true), 45, false);
+      if (!T.allocate(c, DEF, AR0)) continue;
+      simulate(T.newState(c, 110, DEF, AR0, true), 45, false);
       if (!T.state.history.length) continue;
       const before = JSON.stringify(T.state);
-      // 比率と段金額の列（最後の6列）を消して、以前の形式のCSVにする
-      const oldCsv = T.toCSV().split("\r\n").map(line => line ? line.split(",").slice(0, -6).join(",") : line).join("\r\n");
+      // 段比率・段金額・部隊の割合の列（最後の7列）を消して、以前の形式のCSVにする
+      const oldCsv = T.toCSV().split("\r\n").map(line => line ? line.split(",").slice(0, -7).join(",") : line).join("\r\n");
       const re = T.replayCSV(oldCsv);
       ok(JSON.stringify(re.state) === before, () => "old CSV replay differs at capital " + c);
-      ok(re.state.legacy === true && re.state.armies.every(a => a.ratio.join(":") === "1:3:9"), "old CSV not read as 1:3:9 legacy");
+      ok(re.state.legacy === true && re.state.armies.every(a => a.ratio.join(":") === "1:3:9") && re.state.armyRatio.join(":") === "1:2:4", "old CSV not read as 1:2:4 / 1:3:9 legacy");
       // 今の計算方法では張り方が変わる履歴か（以前の方法で読めることを確かめた件数）
       if (T.state.armies.some(a => JSON.stringify(a.ladder) !== JSON.stringify(T.ladder(a.alloc, a.ratio)))) nOldDiff++;
       nOld++;
@@ -235,10 +248,11 @@
     // 段金額の列がないCSVでも、手で変えた投票額はそのまま読み込める（資金と履歴が一致する）
     let nLenient = 0;
     for (let run = 0; run < 60; run++){
-      const rs5 = ratioSets[run % 5];
-      simulate(T.newState(T.unitsFor(rs5).min * ri(1, 10) + ri(0, 50) * UNIT, 110, rs5), 40, true);
+      const [rs5, ar5] = sets[run % sets.length];
+      simulate(T.newState(T.unitsFor(rs5, ar5).min * ri(1, 10) + ri(0, 50) * UNIT, 110, rs5, ar5), 40, true);
       if (!T.state.history.length) continue;
-      const csv = T.toCSV().split("\r\n").map(line => line ? line.split(",").slice(0, -3).join(",") : line).join("\r\n");
+      // 段金額の列（最後から2〜4列目）だけ消す
+      const csv = T.toCSV().split("\r\n").map(line => { if (!line) return line; const c = line.split(","); c.splice(-4, 3); return c.join(","); }).join("\r\n");
       const re = T.replayCSV(csv);
       ok(JSON.stringify(re.state.armies.map(x => [x.funds, x.alloc, x.step])) === JSON.stringify(T.state.armies.map(x => [x.funds, x.alloc, x.step])) &&
          re.state.history.map(h => h.bet + "/" + h.pl).join() === T.state.history.map(h => h.bet + "/" + h.pl).join(), "CSV without ladder columns: funds/history differ");
@@ -246,7 +260,7 @@
     }
     L.push("CSVs without step-amount columns (with edited bets) replayed: " + nLenient);
     // 例：1:3:9 の歩兵（¥1,300）で1・2段目を外し、3段目 ¥900 で払戻 ¥720
-    T.state = T.newState(9100, 110, DEF); T.setUndo([]);
+    T.state = T.newState(9100, 110, DEF, AR0); T.setUndo([]);
     const inf = T.state.armies[0];
     T.apply(T.currentBet(), false, 0, {}); T.apply(T.currentBet(), false, 0, {});
     T.apply(T.currentBet(), true, 720, {});
@@ -278,10 +292,13 @@
       }
     }
     // 比率がない古い保存データ
-    const legacySaved = JSON.parse(JSON.stringify(T.newState(100000, 110, DEF, true)));
-    legacySaved.armies.forEach(a => delete a.ratio); delete legacySaved.legacy;
+    const legacySaved = JSON.parse(JSON.stringify(T.newState(100000, 110, DEF, AR0, true)));
+    legacySaved.armies.forEach(a => delete a.ratio); delete legacySaved.legacy; delete legacySaved.armyRatio;
     const mig = T.migrate(legacySaved);
-    ok(mig.legacy === true && mig.armies.every(a => a.ratio.join(":") === "1:3:9"), "migrate old saved state");
+    ok(mig.legacy === true && mig.armies.every(a => a.ratio.join(":") === "1:3:9") && mig.armyRatio.join(":") === "1:2:4", "migrate old saved state");
+    // 部隊の割合だけがない保存データ（1:2:4:7 などの比率は持っている）
+    const noAr = JSON.parse(JSON.stringify(T.newState(9800, 110, [[1, 2, 4, 7], [1, 2, 4, 7], [1, 2, 4, 7]], AR0))); delete noAr.armyRatio;
+    ok(T.migrate(noAr).armyRatio.join(":") === "1:2:4" && !noAr.legacy, "migrate state without army ratio");
     L.push("default 100,000 本隊: new " + T.ladder(61000, [1, 3, 9]).join("/") + " vs previous " + T.legacyLadder(61000, [1, 3, 9]).join("/"));
 
     // ---- 7. 画面：段比率の欄（欄:欄:欄）と開始 ----
@@ -290,8 +307,10 @@
     const setR = (i, vals) => { boxes(i).forEach((b, k) => { b.value = vals[k] == null ? "" : vals[k]; }); boxes(i)[0].dispatchEvent(new Event("input")); };
     const setV = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event("input")); };
     ok($("ratioPanel").open === false, "ratio settings must start collapsed");
-    T.state = T.newState(100000, 110, DEF); T.setUndo([]); T.render();
-    ok(getR(0) === "1:3:9:" && getR(2) === "1:3:9:", "ratio boxes show current ratios: " + getR(0));
+    const armyB = () => [0, 1, 2].map(k => $("army_" + k));
+    const getA = () => armyB().map(b => b.value).join(":");
+    T.state = T.newState(100000, 110, DEF, AR0); T.setUndo([]); T.render();
+    ok(getR(0) === "1:3:9:" && getR(2) === "1:3:9:" && getA() === "1:2:4", "boxes show current ratios: " + getR(0) + " / " + getA());
     setR(0, [4, 9, "", ""]); setV("capital", "25000");
     ok(boxes(0).every(b => b.getAttribute("aria-invalid") === "false"), "4:9 with empty 3rd box is valid");
     L.push("hint (歩兵 4:9, 25,000): " + $("capHint").innerText.replace(/\s+/g, " ") + " | " + $("ratioHint").textContent);
@@ -311,13 +330,21 @@
     L.push("invalid ratio error: " + $("setupErr").textContent + " / " + $("ratioErr").textContent);
     // 初期値に戻す：欄だけ戻り、開始はしない
     $("ratioReset").click();
-    ok([0, 1, 2].every(i => getR(i) === "1:2:4:7") && T.state === st && st.armies[0].ratio.join(":") === "4:9", "reset button only resets the boxes to 1:2:4:7");
-    ok($("ratioReset").textContent === "初期値（1:2:4:7）に戻す", "reset label: " + $("ratioReset").textContent);
-    // 段比率の設定の中の「この金額で開始」でも開始できる
-    // 本隊 2:5 は最低の軍資金が上がるので、十分な軍資金で開始する
-    setR(2, [2, 5, "", ""]); setV("capital", String(T.unitsFor([[1, 2, 4, 7], [1, 2, 4, 7], [2, 5]]).min * 2)); $("ratioStart").click();
-    ok(T.state !== st && T.state.armies[2].ratio.join(":") === "2:5" && T.state.armies[0].ladder.length === 4 && $("ratioErr").hidden, "start from the ratio panel");
-    ok(document.querySelectorAll("#armies .army")[0].querySelectorAll(".step").length === 4, "4 step boxes for 1:2:4:7");
+    ok(getR(0) === "1:2:5:" && getR(1) === "1:2:5:" && getR(2) === "1:2:6:" && getA() === "8:8:9" && T.state === st && st.armies[0].ratio.join(":") === "4:9", "reset button only resets the boxes to the defaults");
+    ok($("ratioReset").textContent === "初期値に戻す（割合 8:8:9・段比率 歩兵 1:2:5・騎馬隊 1:2:5・本隊 1:2:6）", "reset label: " + $("ratioReset").textContent);
+    // 部隊の割合が読めないときは開始しない
+    armyB()[1].value = ""; armyB()[1].dispatchEvent(new Event("input")); $("ratioStart").click();
+    ok(T.state === st && !$("ratioErr").hidden && armyB().every(b => b.getAttribute("aria-invalid") === "true"), "invalid army ratio must not start");
+    L.push("invalid army ratio: " + $("ratioErr").textContent);
+    // 初期値（割合 8:8:9）で ¥10,000 を「この金額で開始」→ 画像の値
+    $("ratioReset").click(); setV("capital", "10000"); $("ratioStart").click();
+    const d = T.state;
+    ok(d !== st && d.armyRatio.join(":") === "8:8:9" && d.armies.map(a => a.ladder.join("/")).join(" | ") === "400/800/2000 | 400/800/2000 | 400/800/2400" && $("ratioErr").hidden, "start with the defaults");
+    ok($("capHint").hidden, "10,000 has no remainder with the defaults");
+    L.push("after start with defaults: " + $("ratioSummary").textContent + " ・ " + $("setupHint").textContent);
+    // 段比率の設定の中の「この金額で開始」で、本隊を 2:5 に
+    setR(2, [2, 5, "", ""]); setV("capital", String(T.unitsFor([[1, 2, 5], [1, 2, 5], [2, 5]], [8, 8, 9]).min * 2)); $("ratioStart").click();
+    ok(T.state !== d && T.state.armies[2].ratio.join(":") === "2:5" && T.state.armies[0].ladder.length === 3 && $("ratioErr").hidden, "start from the ratio panel");
     L.push("ratio panel start: " + $("ratioNow").textContent);
   } catch (e){ fails.push("EXCEPTION " + e + "\n" + (e.stack || "")); }
   report();
